@@ -24,7 +24,11 @@ body{font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink)}.container{wid
 #builder{scroll-margin-top:90px}#materials,#timber,#signs,#how,#contact{scroll-margin-top:90px}
 @media(max-width:1050px){.navlinks{gap:12px}.brand-logo{width:270px}.hero h1{font-size:39px;white-space:normal}.hero-inner{grid-template-columns:59% 41%}#services .content h3{font-size:16px}}
 @media(max-width:760px){.container{width:calc(100% - 32px)}.nav{height:74px}.brand-logo{width:220px}.hero-inner{grid-template-columns:1fr}.hero-copy{padding:34px 0;background:#121b23}.hero h1{font-size:37px}.hero-visual{min-height:210px}.hero-features{gap:10px}#services .cards{grid-template-columns:1fr}.showcase-grid{grid-template-columns:1fr;gap:22px}.navlinks{background:white} .showcase h2{font-size:27px}}
-</style></head><body><section style="max-width:1180px;margin:20px auto 30px;padding:20px 22px;background:#fff;border:1px solid #dce4e9;border-radius:12px;font:15px/1.5 Arial,sans-serif;color:#26333c" aria-labelledby="price-reference-title">
+</style></head><body><section id="panel-pricing" style="max-width:1180px;margin:20px auto;padding:22px;background:white;border:1px solid #dce4e9;border-radius:12px;font:15px/1.5 Arial,sans-serif"><h2 style="margin:0 0 6px">Panel pricing calculator</h2><p style="color:#64717c">Enter your actual sheet cost and sheet dimensions to estimate material cost from a cut list. This is a <strong>theoretical sheet-area estimate, not a nesting result or confirmed selling price</strong>. Prices are saved in this browser only, not to a secure admin database.</p><div style="display:flex;gap:12px;flex-wrap:wrap">
+<label style="flex:1;min-width:150px">Sheet length (mm)<input id="ppSheetLength" type="number" value="2800" min="100" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
+<label style="flex:1;min-width:150px">Sheet width (mm)<input id="ppSheetWidth" type="number" value="2070" min="100" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
+<label style="flex:1;min-width:150px">Sheet cost (£)<input id="ppSheetPrice" type="number" min="0.01" step=".01" placeholder="Enter actual cost" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
+<label style="flex:1;min-width:150px">Cutting charge per panel (£)<input id="ppCutPrice" type="number" min="0" step=".01" value="0" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label></div><p style="font-size:13px;color:#64717c">Calculation: 25 mm sheet border each side; 6 mm cutter allowance; minimum whole sheets calculated by usable area; £2.47/m edging applies to selected edges. Separate material groups are calculated independently. 12 mm between parts is a production constraint, but true layout and grain-aware nesting must still be checked.</p><button id="ppCalculate" type="button" style="background:#fb7c0a;border:0;color:white;font-weight:700;border-radius:6px;padding:13px 19px;cursor:pointer">Calculate panel estimate</button><div id="ppResult" role="status" style="margin-top:16px;padding:15px;background:#f4f8fa;border-radius:7px">Add panels to your cut list, then enter an actual sheet cost.</div></section><section style="max-width:1180px;margin:20px auto 30px;padding:20px 22px;background:#fff;border:1px solid #dce4e9;border-radius:12px;font:15px/1.5 Arial,sans-serif;color:#26333c" aria-labelledby="price-reference-title">
 <h2 id="price-reference-title" style="margin:0 0 8px">Material pricing references</h2>
 <p style="margin:0 0 12px">Published CNC Creations starting prices (including VAT), for comparison only. These are <strong>not</strong> per-square-metre or per-sheet rates and do not determine a customer's CNC ONLINE quote. Actual price depends on dimensions, grade, thickness, wastage, machining and delivery.</p>
 <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -98,4 +102,39 @@ function updateSignPricing(){
 const originalRenderSignLines=renderSignLines;
 renderSignLines=function(){originalRenderSignLines();updateSignPricing();};
 updateSignPricing();
+</script><script>
+(function(){
+const q=id=>document.getElementById(id),money=n=>'£'+n.toFixed(2);
+const fields=['ppSheetLength','ppSheetWidth','ppSheetPrice','ppCutPrice'];
+try{const v=JSON.parse(localStorage.getItem('cncSheetPricing')||'{}');fields.forEach(id=>{if(v[id]!=null)q(id).value=v[id]})}catch(e){}
+q('ppCalculate').addEventListener('click',()=>{
+const opts=Object.fromEntries(fields.map(id=>[id,Number(q(id).value)]));
+fields.forEach(id=>{});localStorage.setItem('cncSheetPricing',JSON.stringify(Object.fromEntries(fields.map(id=>[id,q(id).value]))));
+let ps=[];try{ps=JSON.parse(localStorage.getItem('cncPanels')||'[]')}catch(e){}
+if(!ps.length){q('ppResult').textContent='No panels added yet. Use the cut-list builder below first.';return}
+const {ppSheetLength:L,ppSheetWidth:W,ppSheetPrice:price,ppCutPrice:cut}=opts;
+if(!(L>50&&W>50&&price>0&&cut>=0)){q('ppResult').textContent='Enter valid sheet dimensions and a real sheet price.';return}
+const usable=(L-50)*(W-50),groups=new Map();let edge=0,pieces=0;
+for(const p of ps){
+ const len=Number(p.length),wid=Number(p.width),qty=Number(p.quantity);
+ if(!(len>0&&wid>0&&Number.isInteger(qty)&&qty>0)){q('ppResult').textContent='Your cut list includes invalid panel measurements.';return}
+ if(len>L-50||wid>W-50){q('ppResult').textContent='At least one panel exceeds the available sheet cutting area. Check dimensions and grain direction.';return}
+ const key=[p.material,p.finish,p.thickness].join(' | ');
+ if(!groups.has(key))groups.set(key,{area:0,pieces:0});
+ const g=groups.get(key);g.area+=(len+6)*(wid+6)*qty;g.pieces+=qty;pieces+=qty;
+ edge+=((p.l1?len:0)+(p.l2?len:0)+(p.w1?wid:0)+(p.w2?wid:0))*qty/1000;
+}
+let sheets=0;const rows=[];
+for(const [key,g] of groups){
+ const count=Math.max(1,Math.ceil(g.area/usable));sheets+=count;
+ rows.push(key+': '+count+' theoretical sheet(s) for '+g.pieces+' parts');
+}
+const material=sheets*price,cutting=pieces*cut,edging=edge*2.47;
+const el=q('ppResult');el.replaceChildren();
+const strong=document.createElement('strong');strong.textContent='Indicative subtotal: '+money(material+cutting+edging);el.append(strong);
+const detail=document.createElement('p');detail.textContent='Material '+money(material)+' + cutting '+money(cutting)+' + edgebanding '+money(edging)+' ('+edge.toFixed(2)+'m).';el.append(detail);
+for(const row of rows){const div=document.createElement('div');div.textContent=row;el.append(div)}
+const warning=document.createElement('p');warning.textContent='IMPORTANT: Area-only estimation can undercount sheets. No true nesting, grain constraints, exact part spacing, supplier pricing, setup, CNC, delivery or VAT calculation has been performed. Do not use this figure as an automatic checkout price.';warning.style.color='#9b4a12';el.append(warning);
+});
+})();
 </script></body></html>
