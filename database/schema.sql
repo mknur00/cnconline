@@ -124,3 +124,24 @@ CREATE TABLE IF NOT EXISTS job_parts (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS job_parts_job_idx ON job_parts(job_id);
+
+-- Editable costing rates; prices are integer pence to avoid floating point currency errors.
+CREATE TABLE IF NOT EXISTS costing_settings (
+  key text PRIMARY KEY,
+  value_pence bigint NOT NULL CHECK (value_pence >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO costing_settings(key,value_pence) VALUES
+ ('edgebanding_per_metre',247),
+ ('cutting_per_metre',0)
+ON CONFLICT (key) DO NOTHING;
+CREATE TABLE IF NOT EXISTS material_sheet_prices (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  material_name text NOT NULL,
+  thickness_mm numeric(8,2) NOT NULL CHECK (thickness_mm > 0),
+  sheet_length_mm integer NOT NULL CHECK (sheet_length_mm > 0),
+  sheet_width_mm integer NOT NULL CHECK (sheet_width_mm > 0),
+  price_pence bigint NOT NULL CHECK (price_pence >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(material_name,thickness_mm)
+);
