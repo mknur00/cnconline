@@ -18,7 +18,7 @@ function nestParts(parts, opts = {}) {
   for(const p of expanded){const key=JSON.stringify([p.material,p.thickness_mm]);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}
   for(const [key,items] of groups){
     const groupMaterial=String(items[0]?.material||'').toLowerCase();
-    const isBoardSheet=/\\b(mdf|plywood|ply|birch ply|marine ply)\\b/i.test(groupMaterial);
+    const isBoardSheet=/\b(mdf|plywood|ply|birch ply|marine ply)\b/i.test(groupMaterial);
     const groupLength=isBoardSheet?2440:2800;
     const groupWidth=isBoardSheet?1220:2070;
     const maxX=groupLength-margin,maxY=groupWidth-margin;
