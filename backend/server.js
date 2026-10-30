@@ -164,7 +164,7 @@ async function main(){
         }
         if(pathname==='/api/quotes'&&req.method==='GET'){
           if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
-          const result=await pool.query("SELECT q.id,q.quote_number,q.status,q.total_pence,q.created_at,c.name AS customer_name,c.company_name FROM quotes q JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC LIMIT 100");
+          const result=await pool.query("SELECT q.id,q.quote_number,q.status,q.total_pence,q.created_at,c.name AS customer_name,c.company_name,CASE WHEN q.internal_notes LIKE 'Online cut-list submission%' THEN 'Online cut list' WHEN q.internal_notes LIKE 'Website enquiry%' OR q.internal_notes LIKE 'Online enquiry%' THEN 'Website enquiry' ELSE 'Manual / other' END AS source FROM quotes q JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC LIMIT 100");
           return json(res,200,{quotes:result.rows});
         }
         if(pathname==='/api/quotes'&&req.method==='POST'){
