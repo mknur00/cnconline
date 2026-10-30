@@ -8,6 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT || 3000);
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5 }) : null;
 const sessions = new Map();
+const enquiryLimits = new Map();
 const MIME = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.json':'application/json','.zip':'application/zip'};
 function json(res, status, body) { res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}); res.end(JSON.stringify(body)); }
 function parseCookies(header='') { return Object.fromEntries(header.split(';').map(x=>x.trim().split('=').map(decodeURIComponent)).filter(x=>x.length===2)); }
@@ -59,6 +60,29 @@ async function main(){
         }
         if(pathname==='/api/auth/me'&&req.method==='GET'){const user=currentUser(req);return user?json(res,200,{user}):json(res,401,{error:'Not signed in'});}
         if(pathname==='/api/auth/logout'&&req.method==='POST'){const sid=parseCookies(req.headers.cookie).cnc_session;sessions.delete(sid);res.setHeader('Set-Cookie','cnc_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
+        if(pathname==='/api/public/enquiries'&&req.method==='POST'){
+          const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
+          const now=Date.now(), key=crypto.createHash('sha256').update(ip).digest('hex');
+          const record=enquiryLimits.get(key)||{count:0,until:now+3600000};
+          if(record.until<now){record.count=0;record.until=now+3600000;}
+          if(record.count>=5)return json(res,429,{error:'Too many enquiries. Please try again later.'});
+          record.count++;enquiryLimits.set(key,record);
+          if(enquiryLimits.size>2000)for(const [k,v] of enquiryLimits){if(v.until<now)enquiryLimits.delete(k);}
+          const data=await body(req);
+          if(data.website)return json(res,200,{ok:true});
+          const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim(),requirements=String(data.requirements||'').trim();
+          if(name.length<2||name.length>200||requirements.length<10||requirements.length>2000||email.length>255||phone.length>60||(!email&&!phone)||email&& !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json(res,400,{error:'Enter your name, contact details and cutting requirements.'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const customer=await client.query('INSERT INTO customers(name,customer_type,company_name,email,phone,postcode) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[name,data.customer_type==='trade'?'trade':'individual',String(data.company_name||'').slice(0,200),email,phone,String(data.postcode||'').slice(0,30)]);
+            const quote=await client.query("INSERT INTO quotes(customer_id,customer_notes,internal_notes) VALUES($1,$2,'Public website enquiry — pricing not reviewed') RETURNING id,quote_number",[customer.rows[0].id,requirements]);
+            await client.query("INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_pence,line_total_pence) VALUES($1,'Customer enquiry — pricing pending',1,'job',0,0)",[quote.rows[0].id]);
+            await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_enquiry')",[quote.rows[0].id]);
+            await client.query('COMMIT');
+            return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
+          }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
+        }
         const user=currentUser(req);
         if(!user)return json(res,401,{error:'Not signed in'});
         if(pathname==='/api/customers'&&req.method==='GET'){
