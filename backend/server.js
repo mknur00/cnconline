@@ -60,6 +60,42 @@ async function main(){
         }
         if(pathname==='/api/auth/me'&&req.method==='GET'){const user=currentUser(req);return user?json(res,200,{user}):json(res,401,{error:'Not signed in'});}
         if(pathname==='/api/auth/logout'&&req.method==='POST'){const sid=parseCookies(req.headers.cookie).cnc_session;sessions.delete(sid);res.setHeader('Set-Cookie','cnc_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
+        if(pathname==='/api/public/cutlists'&&req.method==='POST'){
+          const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
+          const now=Date.now(),key=crypto.createHash('sha256').update(ip).digest('hex');
+          const limit=enquiryLimits.get(key)||{count:0,until:now+3600000};
+          if(limit.until<now){limit.count=0;limit.until=now+3600000;}
+          if(limit.count>=5)return json(res,429,{error:'Too many submissions. Please try later.'});
+          limit.count++;enquiryLimits.set(key,limit);
+          const data=await body(req,200000);
+          if(data.website)return json(res,200,{ok:true});
+          const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim();
+          if(name.length<2||name.length>200||email.length>255||phone.length>60||(!email&&!phone)||(email&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)))return json(res,400,{error:'Provide your name and a valid email or phone number.'});
+          if(!Array.isArray(data.panels)||!data.panels.length||data.panels.length>100)return json(res,400,{error:'Add between 1 and 100 panel lines.'});
+          const parts=[];
+          for(const p of data.panels){
+            const length=Number(p.length),width=Number(p.width),quantity=Number(p.quantity),thickness=Number(p.thickness);
+            const material=String(p.material||'').trim().slice(0,200),part=String(p.part||'Panel').trim().slice(0,120);
+            if(!material||!part||![length,width,quantity,thickness].every(Number.isFinite)||!Number.isInteger(length)||!Number.isInteger(width)||!Number.isInteger(quantity)||length<1||width<1||length>10000||width>10000||quantity<1||quantity>10000||thickness<=0||thickness>100)return json(res,400,{error:'Invalid panel dimensions or thickness.'});
+            const isMdfPly=/mdf|plywood/i.test(material),fire=/fire\\s*rated\\s*mdf/i.test(material);
+            const valid=fire?[12,18]:isMdfPly?[6,9,12,18]:[18];
+            if(!valid.includes(thickness))return json(res,400,{error:'Thickness not available for '+material});
+            parts.push({part,material,length,width,quantity,thickness,finish:String(p.finish||'').slice(0,120),service:String(p.service||'').slice(0,40),edgeType:String(p.edgeType||'').slice(0,60),l1:p.l1===true,l2:p.l2===true,w1:p.w1===true,w2:p.w2===true});
+          }
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const customer=await client.query('INSERT INTO customers(name,email,phone,customer_type,company_name,postcode) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[name,email,phone,data.customer_type==='trade'?'trade':'individual',String(data.company_name||'').slice(0,200),String(data.postcode||'').slice(0,30)]);
+            const quote=await client.query("INSERT INTO quotes(customer_id,customer_notes,internal_notes) VALUES($1,$2,'Online cut-list submission — prices awaiting review') RETURNING id,quote_number",[customer.rows[0].id,String(data.notes||'').slice(0,2000)]);
+            for(let i=0;i<parts.length;i++){
+              const p=parts[i],description=p.part+' — '+p.material+(p.finish?' ('+p.finish+')':'')+' — '+p.thickness+'mm — '+p.length+' × '+p.width+'mm — '+p.service;
+              await client.query('INSERT INTO quote_items(quote_id,sort_order,description,quantity,unit,unit_price_pence,line_total_pence,specifications) VALUES($1,$2,$3,$4,$5,0,0,$6::jsonb)',[quote.rows[0].id,i,description,p.quantity,'panel',JSON.stringify(p)]);
+            }
+            await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_cutlist')",[quote.rows[0].id]);
+            await client.query('COMMIT');
+            return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
+          }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
+        }
         if(pathname==='/api/public/enquiries'&&req.method==='POST'){
           const ip=String(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown').split(',')[0].trim();
           const now=Date.now(), key=crypto.createHash('sha256').update(ip).digest('hex');
