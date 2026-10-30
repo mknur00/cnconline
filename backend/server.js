@@ -15,7 +15,7 @@ function parseCookies(header='') { return Object.fromEntries(header.split(';').m
 function currentUser(req) { const sid=parseCookies(req.headers.cookie).cnc_session; const s=sessions.get(sid); if(!s) return null; if(s.expires < Date.now()){sessions.delete(sid);return null;} return s.user; }
 function hashPassword(password, salt=crypto.randomBytes(16).toString('hex')) { return salt+':'+crypto.scryptSync(password,salt,64).toString('hex'); }
 function verifyPassword(password, stored) { if(!stored || !stored.includes(':')) return false; const [salt,digest]=stored.split(':'); const candidate=crypto.scryptSync(password,salt,64); const expected=Buffer.from(digest,'hex'); return candidate.length===expected.length && crypto.timingSafeEqual(candidate,expected); }
-async function body(req) { let data=''; for await (const chunk of req){data+=chunk;if(data.length>32768)throw Error('Request too large');} return JSON.parse(data||'{}'); }
+async function body(req,limit=32768) { let data=''; for await (const chunk of req){data+=chunk;if(data.length>limit)throw Error('Request too large');} return JSON.parse(data||'{}'); }
 function safeOrigin(req){const origin=req.headers.origin;if(!origin)return true;try {return new URL(origin).host===req.headers.host;}catch{return false;}}
 function serve(req,res,pathname) {
   const route=pathname==='/'?'/index.html':pathname==='/admin'||pathname==='/admin/'?'/admin/index.html':pathname;
@@ -68,10 +68,19 @@ async function main(){
           if(record.count>=5)return json(res,429,{error:'Too many enquiries. Please try again later.'});
           record.count++;enquiryLimits.set(key,record);
           if(enquiryLimits.size>2000)for(const [k,v] of enquiryLimits){if(v.until<now)enquiryLimits.delete(k);}
-          const data=await body(req);
+          const data=await body(req,7200000);
           if(data.website)return json(res,200,{ok:true});
           const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim(),requirements=String(data.requirements||'').trim();
           if(name.length<2||name.length>200||requirements.length<10||requirements.length>2000||email.length>255||phone.length>60||(!email&&!phone)||email&& !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json(res,400,{error:'Enter your name, contact details and cutting requirements.'});
+          let upload=null;
+          if(data.file){
+            const name=String(data.file.name||'').slice(0,200);
+            const allowed=/\\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i;
+            if(!allowed.test(name)||typeof data.file.base64!=='string'||data.file.base64.length>7000000||!/^[A-Za-z0-9+/]*={0,2}$/.test(data.file.base64))return json(res,400,{error:'Unsupported file. Upload CSV, Excel, PDF, image, DXF, DWG, SVG or ZIP up to 5 MB.'});
+            const bytes=Buffer.from(data.file.base64,'base64');
+            if(bytes.length<1||bytes.length>5242880)return json(res,400,{error:'File must be 5 MB or smaller.'});
+            upload={name,bytes,mime:String(data.file.type||'application/octet-stream').slice(0,100)};
+          }
           const client=await pool.connect();
           try{
             await client.query('BEGIN');
@@ -79,6 +88,7 @@ async function main(){
             const quote=await client.query("INSERT INTO quotes(customer_id,customer_notes,internal_notes) VALUES($1,$2,'Public website enquiry — pricing not reviewed') RETURNING id,quote_number",[customer.rows[0].id,requirements]);
             await client.query("INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_pence,line_total_pence) VALUES($1,'Customer enquiry — pricing pending',1,'job',0,0)",[quote.rows[0].id]);
             await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_enquiry')",[quote.rows[0].id]);
+            if(upload)await client.query('INSERT INTO enquiry_uploads(quote_id,original_filename,mime_type,byte_size,file_data) VALUES($1,$2,$3,$4,$5)',[quote.rows[0].id,upload.name,upload.mime,upload.bytes.length,upload.bytes]);
             await client.query('COMMIT');
             return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
           }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
@@ -101,6 +111,19 @@ async function main(){
           const result=await pool.query('INSERT INTO customers (name,customer_type,company_name,email,phone,address_line1,address_line2,city,postcode,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,name,created_at',[data.name.trim(),type,...values,user.id]);
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES ($1,'customer',$2,'create')",[user.id,result.rows[0].id]);
           return json(res,201,{customer:result.rows[0]});
+        }
+        const uploadMatch=pathname.match(/^\\/api\\/quotes\\/([0-9a-f-]{36})\\/uploads\\/([0-9a-f-]{36})$/i);
+        if(uploadMatch&&req.method==='GET'){
+          if(!['super_admin','manager','sales','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query('SELECT original_filename,file_data FROM enquiry_uploads WHERE quote_id=$1 AND id=$2',[uploadMatch[1],uploadMatch[2]]);
+          if(!result.rowCount)return json(res,404,{error:'File not found'});
+          const row=result.rows[0];res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(row.original_filename),'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});return res.end(row.file_data);
+        }
+        const uploadsMatch=pathname.match(/^\\/api\\/quotes\\/([0-9a-f-]{36})\\/uploads$/i);
+        if(uploadsMatch&&req.method==='GET'){
+          if(!['super_admin','manager','sales','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query('SELECT id,original_filename,byte_size,created_at FROM enquiry_uploads WHERE quote_id=$1 ORDER BY created_at',[uploadsMatch[1]]);
+          return json(res,200,{uploads:result.rows});
         }
         if(pathname==='/api/quotes'&&req.method==='GET'){
           if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
