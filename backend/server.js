@@ -187,6 +187,36 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
           return json(res,200,{job:result.rows[0]});
         }
+        if(pathname==='/api/costing'&&req.method==='GET'){
+          const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
+          return json(res,200,{settings:settings.rows,materials:materials.rows});
+        }
+        if(pathname==='/api/costing'&&req.method==='PUT'){
+          if(user.role!=='super_admin')return json(res,403,{error:'Only the administrator can edit pricing'});
+          const data=await body(req);
+          if(data.type==='rate'){
+            if(!['edgebanding_per_metre','cutting_per_metre'].includes(data.key)||!Number.isSafeInteger(data.value_pence)||data.value_pence<0||data.value_pence>10000000)return json(res,400,{error:'Invalid rate'});
+            await pool.query('INSERT INTO costing_settings(key,value_pence) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value_pence=EXCLUDED.value_pence,updated_at=now()',[data.key,data.value_pence]);
+          }else if(data.type==='material'){
+            const material=String(data.material_name||'').trim().slice(0,150),thickness=Number(data.thickness_mm),price=Number(data.price_pence);
+            if(!material||!Number.isFinite(thickness)||thickness<=0||thickness>100||!Number.isSafeInteger(price)||price<0||price>100000000)return json(res,400,{error:'Invalid material price'});
+            const small=/\b(mdf|plywood|ply)\b/i.test(material);
+            await pool.query('INSERT INTO material_sheet_prices(material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(material_name,thickness_mm) DO UPDATE SET sheet_length_mm=EXCLUDED.sheet_length_mm,sheet_width_mm=EXCLUDED.sheet_width_mm,price_pence=EXCLUDED.price_pence,updated_at=now()',[material,thickness,small?2440:2800,small?1220:2070,price]);
+          }else return json(res,400,{error:'Invalid costing type'});
+          return json(res,200,{ok:true});
+        }
+        const estimateMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/estimate$/i);
+        if(estimateMatch&&req.method==='GET'){
+          const [parts,prices,rates]=await Promise.all([pool.query('SELECT * FROM job_parts WHERE job_id=$1',[estimateMatch[1]]),pool.query('SELECT * FROM material_sheet_prices'),pool.query('SELECT key,value_pence FROM costing_settings')]);
+          let layout;try{layout=nestParts(parts.rows);}catch(e){return json(res,400,{error:e.message});}
+          const rate=Object.fromEntries(rates.rows.map(r=>[r.key,Number(r.value_pence)]));
+          const breakdown=layout.sheets.map(sh=>{const match=prices.rows.find(p=>p.material_name.toLowerCase()===String(sh.material).toLowerCase()&&Number(p.thickness_mm)===Number(sh.thickness_mm));const used=sh.placements.reduce((n,p)=>n+p.width*p.height,0),area=sh.sheetLength*sh.sheetWidth;return {material:sh.material,thickness_mm:sh.thickness_mm,sheet_length_mm:sh.sheetLength,sheet_width_mm:sh.sheetWidth,used_area_mm2:used,waste_percent:Math.round((1-used/area)*10000)/100,sheet_price_pence:match?Number(match.price_pence):null};});
+          const edgeMm=parts.rows.reduce((n,p)=>n+Number(p.quantity)*((p.edge_top?Number(p.length_mm):0)+(p.edge_bottom?Number(p.length_mm):0)+(p.edge_left?Number(p.width_mm):0)+(p.edge_right?Number(p.width_mm):0)),0);
+          const cutMm=parts.rows.reduce((n,p)=>n+Number(p.quantity)*2*(Number(p.length_mm)+Number(p.width_mm)),0);
+          const edging_pence=Math.round(edgeMm/1000*(rate.edgebanding_per_metre||0)),cutting_pence=Math.round(cutMm/1000*(rate.cutting_per_metre||0));
+          const material_pence=breakdown.every(x=>x.sheet_price_pence!==null)?breakdown.reduce((n,x)=>n+x.sheet_price_pence,0):null;
+          return json(res,200,{sheets:breakdown,sheet_count:breakdown.length,unplaced_count:layout.unplaced.length,edging_metres:Math.round(edgeMm/10)/100,cutting_metres:Math.round(cutMm/10)/100,edging_pence,cutting_pence,material_pence,total_pence:material_pence===null?null:material_pence+edging_pence+cutting_pence,notice:'Indicative only; cutting length is panel perimeter, not an optimised toolpath. Missing sheet prices prevent a final total.'});
+        }
         const nestMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/nest$/i);
         if(nestMatch&&req.method==='GET'){
           const result=await pool.query('SELECT * FROM job_parts WHERE job_id=$1 ORDER BY sort_order,created_at',[nestMatch[1]]);
