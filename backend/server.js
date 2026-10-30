@@ -67,7 +67,7 @@ async function main(){
           if(limit.until<now){limit.count=0;limit.until=now+3600000;}
           if(limit.count>=5)return json(res,429,{error:'Too many submissions. Please try later.'});
           limit.count++;enquiryLimits.set(key,limit);
-          const data=await body(req,200000);
+          const data=await body(req,7500000);
           if(data.website)return json(res,200,{ok:true});
           const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim();
           if(name.length<2||name.length>200||email.length>255||phone.length>60||(!email&&!phone)||(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return json(res,400,{error:'Provide your name and a valid email or phone number.'});
@@ -77,14 +77,14 @@ async function main(){
             const length=Number(p.length),width=Number(p.width),quantity=Number(p.quantity),thickness=Number(p.thickness);
             const material=String(p.material||'').trim().slice(0,200),part=String(p.part||'Panel').trim().slice(0,120);
             if(!material||!part||![length,width,quantity,thickness].every(Number.isFinite)||!Number.isInteger(length)||!Number.isInteger(width)||!Number.isInteger(quantity)||length<1||width<1||length>10000||width>10000||quantity<1||quantity>10000||thickness<=0||thickness>100)return json(res,400,{error:'Invalid panel dimensions or thickness.'});
-            const isMdfPly=/mdf|plywood/i.test(material),fire=/fire\\s*rated\\s*mdf/i.test(material),sign=/foamex|aluminium composite/i.test(material);
+            const isMdfPly=/mdf|plywood/i.test(material),fire=/fire\s*rated\s*mdf/i.test(material),sign=/foamex|aluminium composite/i.test(material);
             const valid=/foamex/i.test(material)?[3,5,10]:/aluminium composite/i.test(material)?[3,4]:fire?[12,18]:isMdfPly?[6,9,12,18]:[18];
             if(!valid.includes(thickness))return json(res,400,{error:'Thickness not available for '+material});
             if(sign&&(p.l1||p.l2||p.w1||p.w2||['edge','both'].includes(p.service)))return json(res,400,{error:'Sign materials cannot have edgebanding.'});
             parts.push({part,material,length,width,quantity,thickness,finish:String(p.finish||'').slice(0,120),service:String(p.service||'').slice(0,40),edgeType:String(p.edgeType||'').slice(0,60),l1:p.l1===true,l2:p.l2===true,w1:p.w1===true,w2:p.w2===true});
           }
           const attachments=[];let totalBytes=0;
-          if(data.files!==undefined){if(!Array.isArray(data.files)||data.files.length>5)return json(res,400,{error:'Attach no more than 5 files.'});for(const file of data.files){const name=String(file.name||'').slice(0,200);if(!/\\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i.test(name)||typeof file.base64!=='string'||file.base64.length>7000000||!/^[A-Za-z0-9+/]*={0,2}$/.test(file.base64))return json(res,400,{error:'Unsupported attachment: '+name});const bytes=Buffer.from(file.base64,'base64');totalBytes+=bytes.length;if(!bytes.length||bytes.length>5242880||totalBytes>5242880)return json(res,400,{error:'Attachments must total 5 MB or less.'});attachments.push({name,bytes,mime:String(file.type||'application/octet-stream').slice(0,100)});}}
+          if(data.files!==undefined){if(!Array.isArray(data.files)||data.files.length>5)return json(res,400,{error:'Attach no more than 5 files.'});for(const file of data.files){const name=String(file.name||'').slice(0,200);if(!/\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i.test(name)||typeof file.base64!=='string'||file.base64.length>7000000||!/^[A-Za-z0-9+/]*={0,2}$/.test(file.base64))return json(res,400,{error:'Unsupported attachment: '+name});const bytes=Buffer.from(file.base64,'base64');totalBytes+=bytes.length;if(!bytes.length||bytes.length>5242880||totalBytes>5242880)return json(res,400,{error:'Attachments must total 5 MB or less.'});attachments.push({name,bytes,mime:String(file.type||'application/octet-stream').slice(0,100)});}}
           const client=await pool.connect();
           try{
             await client.query('BEGIN');
@@ -115,7 +115,7 @@ async function main(){
           let upload=null;
           if(data.file){
             const name=String(data.file.name||'').slice(0,200);
-            const allowed=/\\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i;
+            const allowed=/\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i;
             if(!allowed.test(name)||typeof data.file.base64!=='string'||data.file.base64.length>7000000||!/^[A-Za-z0-9+/]*={0,2}$/.test(data.file.base64))return json(res,400,{error:'Unsupported file. Upload CSV, Excel, PDF, image, DXF, DWG, SVG or ZIP up to 5 MB.'});
             const bytes=Buffer.from(data.file.base64,'base64');
             if(bytes.length<1||bytes.length>5242880)return json(res,400,{error:'File must be 5 MB or smaller.'});
