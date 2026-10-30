@@ -280,6 +280,20 @@ async function main(){
           const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
         }
+        if(pathname==='/api/costing/bulk'&&req.method==='POST'){
+          if(user.role!=='super_admin')return json(res,403,{error:'Only the administrator can import pricing'});
+          const data=await body(req,2000000);
+          if(!Array.isArray(data.rows)||!data.rows.length||data.rows.length>1000)return json(res,400,{error:'Import 1 to 1000 material rows'});
+          const validated=[];const seen=new Set();
+          for(let i=0;i<data.rows.length;i++){
+            const row=data.rows[i],material=String(row.material_name||'').trim(),thickness=Number(row.thickness_mm),price=Number(row.price_pence),length=Number(row.sheet_length_mm),width=Number(row.sheet_width_mm);
+            if(!material||material.length>150||![thickness,price,length,width].every(Number.isFinite)||thickness<=0||thickness>100||!Number.isSafeInteger(price)||price<0||price>100000000||!Number.isInteger(length)||!Number.isInteger(width)||length<100||width<100||length>10000||width>10000)return json(res,400,{error:'Invalid price or sheet dimensions on row '+(i+1)});
+            if(/fire\\s*[- ]?rated\\s*mdf/i.test(material)&&![12,18].includes(thickness))return json(res,400,{error:'Fire-rated MDF only supports 12mm and 18mm (row '+(i+1)+')'});
+            const key=material.toLowerCase()+'|'+thickness;if(seen.has(key))return json(res,400,{error:'Duplicate material and thickness on row '+(i+1)});seen.add(key);
+            validated.push([material,thickness,length,width,price]);
+          }
+          const client=await pool.connect();try{await client.query('BEGIN');for(const row of validated)await client.query('INSERT INTO material_sheet_prices(material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(material_name,thickness_mm) DO UPDATE SET sheet_length_mm=EXCLUDED.sheet_length_mm,sheet_width_mm=EXCLUDED.sheet_width_mm,price_pence=EXCLUDED.price_pence,updated_at=now()',row);await client.query('COMMIT');return json(res,200,{ok:true,imported:validated.length});}catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
+        }
         if(pathname==='/api/costing'&&req.method==='PUT'){
           if(user.role!=='super_admin')return json(res,403,{error:'Only the administrator can edit pricing'});
           const data=await body(req);
