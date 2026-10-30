@@ -22,10 +22,47 @@
  .tile a,.action{min-height:44px}
 }
 @media(max-width:600px){.mobile-header{min-height:58px}.mobile-hero{padding:30px 18px}.mobile-hero .actions{flex-direction:column}.mobile-hero .actions .action{width:100%}.more{padding:32px 18px}.grid{gap:12px}.tile{padding:20px}.footer{line-height:1.6}}
+
+/* Mobile header and first-screen repair: desktop reference remains untouched. */
+@media(max-width:900px){
+ .mobile-header{min-height:70px;padding:10px 15px;gap:10px;position:sticky;top:0;z-index:100;display:flex;align-items:center;background:#fff;box-shadow:0 2px 12px #00000018}
+ .mobile-brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:#151c21}
+ .mobile-brand-mark{display:block;position:relative;width:36px;height:36px;flex:none}
+ .mobile-brand-mark i{position:absolute;left:5px;width:27px;height:13px;transform:rotate(-26deg) skew(24deg);border:1px solid #fff}
+ .mobile-brand-mark i:nth-child(1){top:5px;background:#0f90bd}
+ .mobile-brand-mark i:nth-child(2){top:13px;background:#f47e13}
+ .mobile-brand-mark i:nth-child(3){top:21px;background:#23323e}
+ .mobile-brand-name{display:flex;flex-direction:column;gap:3px;white-space:nowrap}
+ .mobile-brand-name strong{font-weight:900;font-size:20px;letter-spacing:-1.2px;line-height:1}
+ .mobile-brand-name strong span{font-weight:400}
+ .mobile-brand-name small{font-size:7px;letter-spacing:1.7px;font-weight:700}
+ .mobile-header-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+ .mobile-quote{background:#f58218;color:#fff;border-radius:6px;padding:11px 10px;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
+ .mobile-menu-button{display:flex;width:42px;height:42px;flex-direction:column;justify-content:center;align-items:center;gap:5px;background:#fff;border:1px solid #d6dfe5;border-radius:7px;cursor:pointer;flex:none}
+ .mobile-menu-button span{display:block;width:20px;height:2px;background:#203440;border-radius:2px}
+ .mobile-nav{display:none;position:sticky;top:70px;z-index:99;padding:8px 14px 14px;background:white;box-shadow:0 10px 20px #0002;overflow:visible;flex-direction:column;gap:3px}
+ .mobile-nav.is-open{display:flex}
+ .mobile-nav a{display:block;padding:13px 14px;border:0;border-bottom:1px solid #e8edf0;border-radius:0;font-size:15px}
+ .mobile-hero{padding:34px 20px 32px}
+ .mobile-hero h1{font-size:clamp(32px,7vw,47px);line-height:1.13;overflow-wrap:normal}
+ .mobile-hero-photo{width:100%;height:210px;margin-top:25px;border-radius:12px;background-image:linear-gradient(90deg,#102b3b12,#102b3b08),url("approved-homepage.png");background-size:auto 570px;background-repeat:no-repeat;background-position:69% 17%;box-shadow:0 8px 25px #0004}
+}
+@media(max-width:380px){
+ .mobile-header{padding:9px 10px}
+ .mobile-brand{gap:5px}
+ .mobile-brand-name strong{font-size:17px}
+ .mobile-brand-name small{font-size:6px;letter-spacing:1px}
+ .mobile-brand-mark{width:30px}
+ .mobile-quote{padding:10px 7px;font-size:11px}
+ .mobile-header-actions{gap:5px}
+ .mobile-menu-button{width:38px}
+ .mobile-hero{padding:28px 16px 30px}
+ .mobile-hero-photo{height:172px;background-size:auto 505px}
+}
 </style></head><body>
-<div class="mobile-header"><strong>CNC<span style="font-weight:400">ONLINE</span></strong><a class="action" href="order.html#builder" style="margin:0;padding:10px 14px;font-size:12px">Get a Quote →</a></div>
-<nav class="mobile-nav" aria-label="Mobile navigation"><a href="#services">Services</a><a href="#materials">Materials</a><a href="order.html#builder">Cut List</a><a href="order.html#timber">Timber</a><a href="order.html#signs">Signs</a></nav>
-<main><section class="mobile-hero" aria-label="CNC Online mobile homepage"><span class="eyebrow">CUT · EDGE · CNC</span><h1>Cut to Size Panels,<br><em>CNC Routing &amp;</em><br><mark>Edgebanding</mark></h1><p>Precision panel cutting, CNC machining, timber cutting and sign materials. Build your cut list and request a quote from your phone.</p><div class="actions"><a class="action" href="order.html#builder">Get a Quote →</a><a class="action blue" href="order.html#builder">Build Your Cut List</a></div><img src="approved-homepage.png" alt="CNC machine and materials imagery from the approved CNC Online homepage" loading="lazy"></section><div class="reference" aria-label="Approved CNC ONLINE homepage design, with clickable navigation and quote links">
+<header class="mobile-header"><a class="mobile-brand" href="/" aria-label="CNC ONLINE home"><span class="mobile-brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="mobile-brand-name"><strong>CNC<span>ONLINE</span></strong><small>CUT &nbsp; | &nbsp; EDGE &nbsp; | &nbsp; CNC</small></span></a><div class="mobile-header-actions"><a class="mobile-quote" href="order.html#builder">Get a Quote</a><button class="mobile-menu-button" type="button" aria-controls="mobile-menu-links" aria-expanded="false" aria-label="Open navigation menu" onclick="var n=document.getElementById('mobile-menu-links'),open=n.classList.toggle('is-open');this.setAttribute('aria-expanded',String(open));this.setAttribute('aria-label',open?'Close navigation menu':'Open navigation menu')"><span></span><span></span><span></span></button></div></header>
+<nav class="mobile-nav" id="mobile-menu-links" aria-label="Mobile navigation"><a href="#services">Services</a><a href="#materials">Materials</a><a href="order.html#builder">Cut List &amp; Quotes</a><a href="order.html#signs">Sign Materials</a><a href="order.html#timber">Timber Cutting</a><a href="#contact">Contact</a></nav>
+<main><section class="mobile-hero" aria-label="CNC Online mobile homepage"><span class="eyebrow">CUT · EDGE · CNC</span><h1>Cut to Size Panels,<br><em>CNC Routing &amp;</em><br><mark>Edgebanding</mark></h1><p>Precision panel cutting, CNC machining, timber cutting and sign materials. Build your cut list and request a quote from your phone.</p><div class="actions"><a class="action" href="order.html#builder">Get a Quote →</a><a class="action blue" href="order.html#builder">Build Your Cut List</a></div><div class="mobile-hero-photo" role="img" aria-label="CNC machine routing a sheet of wood"></div></section><div class="reference" aria-label="Approved CNC ONLINE homepage design, with clickable navigation and quote links">
 <img src="approved-homepage.png" alt="CNC ONLINE website homepage in original approved blue, orange, black and white design. CNC cutting machinery hero image, three service cards, MDF, plywood and melamine material photos and cut-list ordering preview." width="1672" height="941" fetchpriority="high">
 <!-- Transparent live links aligned over the exact supplied artwork (percentages from 1672 x 941). -->
 <a class="hotspot" style="left:34.8%;top:1.5%;width:6.4%;height:7.5%" href="#services" aria-label="Services"></a>
