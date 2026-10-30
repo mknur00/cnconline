@@ -1,0 +1,49 @@
+name: Add supplied MDF photographs
+on:
+  push:
+    paths:
+      - 'mdf-*.jpg'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Insert MDF tile images
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          p=Path('order.html')
+          s=p.read_text()
+          mapping={
+            'Moisture Resistant MDF':'mdf-moisture-resistant-mdf.jpg',
+            'Standard MDF':'mdf-standard-mdf.jpg',
+            'Fire Rated MDF':'mdf-fire-rated-mdf.jpg',
+            'Veneered MDF':'mdf-veneered-mdf.jpg',
+            'Melamine Faced MDF':'mdf-melamine-faced-mdf.jpg',
+          }
+          missing=[x for x in mapping.values() if not Path(x).exists()]
+          if missing:
+            print('Waiting for remaining MDF files:',missing)
+            raise SystemExit(0)
+          for label,fn in mapping.items():
+            marker='<div class="material"><div class="ic">▤</div><b>'+label+'</b>'
+            replace='<div class="material"><img class="mdf-photo" src="'+fn+'" alt="Close-up of '+label+' board" loading="lazy"><b>'+label+'</b>'
+            if marker in s: s=s.replace(marker,replace,1)
+          if '/* Customer-provided MDF product photographs */' not in s:
+            css='''\n/* Customer-provided MDF product photographs */
+          .materials .material .mdf-photo{width:100%;height:150px;object-fit:cover;border-radius:8px;display:block;margin:0 0 13px;background:#eef0f2}
+          @media(min-width:1000px){.materials .material .mdf-photo{width:112px;height:110px;float:left;margin:0 14px 10px 0}}
+          @media(max-width:600px){.materials .material .mdf-photo{height:175px}}
+          '''
+            s=s.replace('</style>',css+'</style>',1)
+          p.write_text(s)
+      - name: Commit material tile update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add order.html
+          git diff --cached --quiet || (git commit -m "Show customer supplied MDF board photographs" && git push)
