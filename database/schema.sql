@@ -103,3 +103,24 @@ CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC);
 
 -- The initial super admin must be provisioned by a secure invitation/setup
 -- flow. Do not insert an active account without verified credentials.
+
+-- Production parts attached to workshop jobs
+CREATE TABLE IF NOT EXISTS job_parts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  sort_order integer NOT NULL DEFAULT 0,
+  part_name text NOT NULL,
+  material text NOT NULL,
+  thickness_mm numeric(8,2) NOT NULL CHECK (thickness_mm > 0),
+  length_mm numeric(10,2) NOT NULL CHECK (length_mm > 0),
+  width_mm numeric(10,2) NOT NULL CHECK (width_mm > 0),
+  quantity integer NOT NULL DEFAULT 1 CHECK (quantity > 0),
+  grain_direction text NOT NULL DEFAULT 'none' CHECK (grain_direction IN ('none','length','width')),
+  edge_top boolean NOT NULL DEFAULT false,
+  edge_bottom boolean NOT NULL DEFAULT false,
+  edge_left boolean NOT NULL DEFAULT false,
+  edge_right boolean NOT NULL DEFAULT false,
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS job_parts_job_idx ON job_parts(job_id);
