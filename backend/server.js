@@ -60,6 +60,23 @@ async function main(){
         if(pathname==='/api/auth/logout'&&req.method==='POST'){const sid=parseCookies(req.headers.cookie).cnc_session;sessions.delete(sid);res.setHeader('Set-Cookie','cnc_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
         const user=currentUser(req);
         if(!user)return json(res,401,{error:'Not signed in'});
+        if(pathname==='/api/customers'&&req.method==='GET'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const q=String(url.searchParams.get('q')||'').trim().slice(0,100);
+          const result=await pool.query("SELECT id,name,company_name,email,phone,customer_type,city,postcode,created_at FROM customers WHERE ($1 = '' OR name ILIKE '%'||$1||'%' OR coalesce(company_name,'') ILIKE '%'||$1||'%' OR coalesce(email,'') ILIKE '%'||$1||'%' OR coalesce(phone,'') ILIKE '%'||$1||'%') ORDER BY created_at DESC LIMIT 100",[q]);
+          return json(res,200,{customers:result.rows});
+        }
+        if(pathname==='/api/customers'&&req.method==='POST'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req);
+          if(typeof data.name!=='string'||!data.name.trim()||data.name.length>200)return json(res,400,{error:'Customer name is required (maximum 200 characters)'});
+          const fields=['company_name','email','phone','address_line1','address_line2','city','postcode','notes'];
+          const values=fields.map(k=>data[k]==null?null:String(data[k]).trim().slice(0,k==='notes'?2000:255));
+          const type=data.customer_type==='trade'?'trade':'individual';
+          const result=await pool.query('INSERT INTO customers (name,customer_type,company_name,email,phone,address_line1,address_line2,city,postcode,notes,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,name,created_at',[data.name.trim(),type,...values,user.id]);
+          await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES ($1,'customer',$2,'create')",[user.id,result.rows[0].id]);
+          return json(res,201,{customer:result.rows[0]});
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
