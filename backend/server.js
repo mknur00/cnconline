@@ -148,6 +148,44 @@ async function main(){
             await client.query('COMMIT');return json(res,200,{quote:updated.rows[0]});
           }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
         }
+        if(pathname==='/api/staff'&&req.method==='GET'){
+          const result=await pool.query("SELECT id,email,full_name,role FROM staff_users WHERE is_active=true ORDER BY full_name NULLS LAST,email");
+          return json(res,200,{staff:result.rows});
+        }
+        if(pathname==='/api/jobs'&&req.method==='GET'){
+          const result=await pool.query("SELECT j.id,j.status,j.due_date,j.production_notes,j.assigned_to,j.created_at,c.name AS customer_name,q.quote_number,s.email AS assigned_email FROM jobs j JOIN customers c ON c.id=j.customer_id LEFT JOIN quotes q ON q.id=j.quote_id LEFT JOIN staff_users s ON s.id=j.assigned_to ORDER BY j.created_at DESC LIMIT 100");
+          return json(res,200,{jobs:result.rows});
+        }
+        if(pathname==='/api/jobs'&&req.method==='POST'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req);
+          if(typeof data.quote_id!=='string'||!/^[0-9a-f-]{36}$/i.test(data.quote_id))return json(res,400,{error:'Select a valid quotation'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const q=await client.query('SELECT id,customer_id,status FROM quotes WHERE id=$1 FOR UPDATE',[data.quote_id]);
+            if(!q.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Quote not found'});}
+            if(!['accepted','converted'].includes(q.rows[0].status)){await client.query('ROLLBACK');return json(res,409,{error:'Accept the quotation before creating a job'});}
+            const created=await client.query("INSERT INTO jobs(quote_id,customer_id,status) VALUES($1,$2,'new') ON CONFLICT (quote_id) DO NOTHING RETURNING id,status",[data.quote_id,q.rows[0].customer_id]);
+            if(!created.rowCount){await client.query('ROLLBACK');return json(res,409,{error:'This quote already has a job'});}
+            await client.query("UPDATE quotes SET status='converted',updated_at=now(),updated_by=$2 WHERE id=$1",[data.quote_id,user.id]);
+            await client.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'create')",[user.id,created.rows[0].id]);
+            await client.query('COMMIT');return json(res,201,{job:created.rows[0]});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
+        const jobMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})$/i);
+        if(jobMatch&&req.method==='PUT'){
+          if(!['super_admin','manager','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req),statuses=['new','approved','in_production','ready','dispatched','completed','cancelled'];
+          if(!statuses.includes(data.status))return json(res,400,{error:'Invalid job status'});
+          const assigned=data.assigned_to||null;
+          if(assigned&&!/^[0-9a-f-]{36}$/i.test(assigned))return json(res,400,{error:'Invalid staff member'});
+          if(data.due_date&&!/^\d{4}-\d{2}-\d{2}$/.test(data.due_date))return json(res,400,{error:'Invalid due date'});
+          const result=await pool.query("UPDATE jobs SET status=$2,assigned_to=$3,due_date=$4,production_notes=$5,updated_at=now() WHERE id=$1 RETURNING id,status",[jobMatch[1],data.status,assigned,data.due_date||null,String(data.production_notes||'').slice(0,4000)]);
+          if(!result.rowCount)return json(res,404,{error:'Job not found'});
+          await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
+          return json(res,200,{job:result.rows[0]});
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
