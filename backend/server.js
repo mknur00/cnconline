@@ -280,6 +280,14 @@ async function main(){
           const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
         }
+        if(pathname==='/api/costing/supplier-cost'&&req.method==='PUT'){
+          if(user.role!=='super_admin')return json(res,403,{error:'Administrator only'});
+          const data=await body(req);
+          const material=String(data.material_name||'').trim(),thickness=Number(data.thickness_mm),cost=Number(data.supplier_cost_pence);
+          if(!material||!Number.isFinite(thickness)||thickness<=0||!Number.isSafeInteger(cost)||cost<0||cost>100000000)return json(res,400,{error:'Invalid supplier cost'});
+          const result=await pool.query('UPDATE material_sheet_prices SET supplier_cost_pence=$1,updated_at=now() WHERE material_name=$2 AND thickness_mm=$3 RETURNING id',[cost,material,thickness]);
+          return result.rowCount?json(res,200,{ok:true}):json(res,404,{error:'Save material selling price first'});
+        }
         if(pathname==='/api/costing/bulk'&&req.method==='POST'){
           if(user.role!=='super_admin')return json(res,403,{error:'Only the administrator can import pricing'});
           const data=await body(req,2000000);
