@@ -113,6 +113,41 @@ async function main(){
             return json(res,201,{quote:result.rows[0]});
           }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
         }
+        const quoteMatch=pathname.match(/^\/api\/quotes\/([0-9a-f-]{36})$/i);
+        if(quoteMatch&&req.method==='GET'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const q=await pool.query('SELECT q.*,c.name AS customer_name,c.company_name,c.email AS customer_email,c.phone AS customer_phone,c.address_line1,c.address_line2,c.city,c.postcode FROM quotes q JOIN customers c ON c.id=q.customer_id WHERE q.id=$1',[quoteMatch[1]]);
+          if(!q.rowCount)return json(res,404,{error:'Quotation not found'});
+          const items=await pool.query('SELECT id,description,quantity,unit,unit_price_pence,line_total_pence,sort_order FROM quote_items WHERE quote_id=$1 ORDER BY sort_order',[quoteMatch[1]]);
+          return json(res,200,{quote:q.rows[0],items:items.rows});
+        }
+        if(quoteMatch&&req.method==='PUT'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req);
+          const statuses=['draft','sent','accepted','declined','expired','converted'];
+          if(!statuses.includes(data.status))return json(res,400,{error:'Invalid quotation status'});
+          if(!Array.isArray(data.items)||!data.items.length||data.items.length>100)return json(res,400,{error:'Include 1–100 items'});
+          const items=[];
+          for(const x of data.items){
+            const description=String(x.description||'').trim().slice(0,500),quantity=Number(x.quantity),unitPrice=Number(x.unit_price_pence);
+            if(!description||!Number.isFinite(quantity)||quantity<=0||quantity>100000||!Number.isSafeInteger(unitPrice)||unitPrice<0||unitPrice>100000000)return json(res,400,{error:'Invalid item'});
+            const total=Math.round(quantity*unitPrice);
+            if(!Number.isSafeInteger(total))return json(res,400,{error:'Invalid line total'});
+            items.push({description,quantity,unitPrice,total,unit:String(x.unit||'each').slice(0,30)});
+          }
+          const subtotal=items.reduce((a,x)=>a+x.total,0),discount=Number(data.discount_pence||0),vat=Number(data.vat_pence||0);
+          if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Invalid totals'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const updated=await client.query('UPDATE quotes SET status=$2,subtotal_pence=$3,discount_pence=$4,vat_pence=$5,total_pence=$6,customer_notes=$7,updated_by=$8,updated_at=now() WHERE id=$1 RETURNING id,quote_number,status,total_pence',[quoteMatch[1],data.status,subtotal,discount,vat,subtotal-discount+vat,String(data.customer_notes||'').slice(0,2000),user.id]);
+            if(!updated.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Quotation not found'});}
+            await client.query('DELETE FROM quote_items WHERE quote_id=$1',[quoteMatch[1]]);
+            for(let i=0;i<items.length;i++){const x=items[i];await client.query('INSERT INTO quote_items(quote_id,sort_order,description,quantity,unit,unit_price_pence,line_total_pence) VALUES($1,$2,$3,$4,$5,$6,$7)',[quoteMatch[1],i,x.description,x.quantity,x.unit,x.unitPrice,x.total]);}
+            await client.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'quote',$2,'update')",[user.id,quoteMatch[1]]);
+            await client.query('COMMIT');return json(res,200,{quote:updated.rows[0]});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
