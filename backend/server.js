@@ -222,6 +222,7 @@ async function main(){
           }
           const subtotal=items.reduce((a,x)=>a+x.total,0),discount=Number(data.discount_pence||0),vat=Number(data.vat_pence||0);
           if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Invalid totals'});
+          if(['sent','accepted','converted'].includes(data.status)&&(items.some(x=>x.unitPrice<=0)||subtotal-discount+vat<=0))return json(res,409,{error:'Review and price every item before marking this quotation sent or accepted.'});
           const client=await pool.connect();
           try{
             await client.query('BEGIN');
@@ -251,6 +252,7 @@ async function main(){
             const q=await client.query('SELECT id,customer_id,status FROM quotes WHERE id=$1 FOR UPDATE',[data.quote_id]);
             if(!q.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Quote not found'});}
             if(!['accepted','converted'].includes(q.rows[0].status)){await client.query('ROLLBACK');return json(res,409,{error:'Accept the quotation before creating a job'});}
+            const pricing=await client.query('SELECT total_pence FROM quotes WHERE id=$1',[data.quote_id]);const unpriced=await client.query('SELECT 1 FROM quote_items WHERE quote_id=$1 AND unit_price_pence<=0 LIMIT 1',[data.quote_id]);if(Number(pricing.rows[0].total_pence)<=0||unpriced.rowCount){await client.query('ROLLBACK');return json(res,409,{error:'Quotation has unpriced items. Review pricing before production.'});}
             const created=await client.query("INSERT INTO jobs(quote_id,customer_id,status) VALUES($1,$2,'new') ON CONFLICT (quote_id) DO NOTHING RETURNING id,status",[data.quote_id,q.rows[0].customer_id]);
             if(!created.rowCount){await client.query('ROLLBACK');return json(res,409,{error:'This quote already has a job'});}
             await client.query("UPDATE quotes SET status='converted',updated_at=now(),updated_by=$2 WHERE id=$1",[data.quote_id,user.id]);
