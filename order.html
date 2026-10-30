@@ -28,7 +28,7 @@ body{font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--ink)}.container{wid
 <label style="flex:1;min-width:150px">Sheet length (mm)<input id="ppSheetLength" type="number" value="2800" min="100" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
 <label style="flex:1;min-width:150px">Sheet width (mm)<input id="ppSheetWidth" type="number" value="2070" min="100" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
 <label style="flex:1;min-width:150px">Sheet cost (£)<input id="ppSheetPrice" type="number" min="0.01" step=".01" placeholder="Enter actual cost" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label>
-<label style="flex:1;min-width:150px">Cutting charge per panel (£)<input id="ppCutPrice" type="number" min="0" step=".01" value="0" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label></div><p style="font-size:13px;color:#64717c">Calculation: 25 mm sheet border each side; 6 mm cutter allowance; minimum whole sheets calculated by usable area; £2.47/m edging applies to selected edges. Separate material groups are calculated independently. 12 mm between parts is a production constraint, but true layout and grain-aware nesting must still be checked.</p><button id="ppCalculate" type="button" style="background:#fb7c0a;border:0;color:white;font-weight:700;border-radius:6px;padding:13px 19px;cursor:pointer">Calculate panel estimate</button><div id="ppResult" role="status" style="margin-top:16px;padding:15px;background:#f4f8fa;border-radius:7px">Add panels to your cut list, then enter an actual sheet cost.</div></section><section style="max-width:1180px;margin:20px auto 30px;padding:20px 22px;background:#fff;border:1px solid #dce4e9;border-radius:12px;font:15px/1.5 Arial,sans-serif;color:#26333c" aria-labelledby="price-reference-title">
+<label style="flex:1;min-width:150px">Cutting charge per panel (£)<input id="ppCutPrice" type="number" min="0" step=".01" value="0" style="display:block;width:100%;padding:10px;border:1px solid #abb5bd"></label></div><p style="font-size:13px;color:#64717c">Calculation: 25 mm sheet border each side; 6 mm cutter allowance; sheet count estimated using rectangular nesting; £2.47/m edging applies to selected edges. Separate material groups are calculated independently. 12 mm between parts is a production constraint, but true layout and grain-aware nesting must still be checked.</p><button id="ppCalculate" type="button" style="background:#fb7c0a;border:0;color:white;font-weight:700;border-radius:6px;padding:13px 19px;cursor:pointer">Calculate panel estimate</button><div id="ppResult" role="status" style="margin-top:16px;padding:15px;background:#f4f8fa;border-radius:7px">Add panels to your cut list, then enter an actual sheet cost.</div></section><section style="max-width:1180px;margin:20px auto 30px;padding:20px 22px;background:#fff;border:1px solid #dce4e9;border-radius:12px;font:15px/1.5 Arial,sans-serif;color:#26333c" aria-labelledby="price-reference-title">
 <h2 id="price-reference-title" style="margin:0 0 8px">Material pricing references</h2>
 <p style="margin:0 0 12px">Published CNC Creations starting prices (including VAT), for comparison only. These are <strong>not</strong> per-square-metre or per-sheet rates and do not determine a customer's CNC ONLINE quote. Actual price depends on dimensions, grade, thickness, wastage, machining and delivery.</p>
 <div style="display:flex;flex-wrap:wrap;gap:8px">
@@ -104,37 +104,72 @@ renderSignLines=function(){originalRenderSignLines();updateSignPricing();};
 updateSignPricing();
 </script><script>
 (function(){
-const q=id=>document.getElementById(id),money=n=>'£'+n.toFixed(2);
-const fields=['ppSheetLength','ppSheetWidth','ppSheetPrice','ppCutPrice'];
-try{const v=JSON.parse(localStorage.getItem('cncSheetPricing')||'{}');fields.forEach(id=>{if(v[id]!=null)q(id).value=v[id]})}catch(e){}
-q('ppCalculate').addEventListener('click',()=>{
-const opts=Object.fromEntries(fields.map(id=>[id,Number(q(id).value)]));
-fields.forEach(id=>{});localStorage.setItem('cncSheetPricing',JSON.stringify(Object.fromEntries(fields.map(id=>[id,q(id).value]))));
-let ps=[];try{ps=JSON.parse(localStorage.getItem('cncPanels')||'[]')}catch(e){}
-if(!ps.length){q('ppResult').textContent='No panels added yet. Use the cut-list builder below first.';return}
-const {ppSheetLength:L,ppSheetWidth:W,ppSheetPrice:price,ppCutPrice:cut}=opts;
-if(!(L>50&&W>50&&price>0&&cut>=0)){q('ppResult').textContent='Enter valid sheet dimensions and a real sheet price.';return}
-const usable=(L-50)*(W-50),groups=new Map();let edge=0,pieces=0;
-for(const p of ps){
- const len=Number(p.length),wid=Number(p.width),qty=Number(p.quantity);
- if(!(len>0&&wid>0&&Number.isInteger(qty)&&qty>0)){q('ppResult').textContent='Your cut list includes invalid panel measurements.';return}
- if(len>L-50||wid>W-50){q('ppResult').textContent='At least one panel exceeds the available sheet cutting area. Check dimensions and grain direction.';return}
- const key=[p.material,p.finish,p.thickness].join(' | ');
- if(!groups.has(key))groups.set(key,{area:0,pieces:0});
- const g=groups.get(key);g.area+=(len+6)*(wid+6)*qty;g.pieces+=qty;pieces+=qty;
- edge+=((p.l1?len:0)+(p.l2?len:0)+(p.w1?wid:0)+(p.w2?wid:0))*qty/1000;
+const $=id=>document.getElementById(id),money=n=>'£'+n.toFixed(2);
+const ids=['ppSheetLength','ppSheetWidth','ppSheetPrice','ppCutPrice'];
+const STORE='cncSheetPricing';
+try{const settings=JSON.parse(localStorage.getItem(STORE)||'{}');ids.forEach(id=>{if(settings[id]!=null)$(id).value=settings[id]})}catch(e){}
+const p=$('ppResult'), btn=$('ppCalculate');
+function nest(parts,L,W){
+  const gap=12, bins=[];
+  for(const part of parts){
+    let placed=false;
+    for(const bin of bins){
+      for(let i=0;i<bin.free.length;i++){
+        const r=bin.free[i];
+        if(part.w<=r.w&&part.h<=r.h){
+          bin.free.splice(i,1);
+          // Fixed grain orientation: never rotate a part. 12 mm is reserved between parts.
+          const rw=r.w-part.w-gap,rh=r.h-part.h-gap;
+          if(rw>0)bin.free.push({x:r.x+part.w+gap,y:r.y,w:rw,h:part.h});
+          if(rh>0)bin.free.push({x:r.x,y:r.y+part.h+gap,w:r.w,h:rh});
+          bin.used+=part.w*part.h;placed=true;break;
+        }
+      }
+      if(placed)break;
+    }
+    if(!placed){
+      if(part.w>L||part.h>W)return null;
+      const bin={free:[],used:part.w*part.h};
+      if(L-part.w-gap>0)bin.free.push({x:part.w+gap,y:0,w:L-part.w-gap,h:part.h});
+      if(W-part.h-gap>0)bin.free.push({x:0,y:part.h+gap,w:L,h:W-part.h-gap});
+      bins.push(bin);
+    }
+  }
+  return bins;
 }
-let sheets=0;const rows=[];
-for(const [key,g] of groups){
- const count=Math.max(1,Math.ceil(g.area/usable));sheets+=count;
- rows.push(key+': '+count+' theoretical sheet(s) for '+g.pieces+' parts');
-}
-const material=sheets*price,cutting=pieces*cut,edging=edge*2.47;
-const el=q('ppResult');el.replaceChildren();
-const strong=document.createElement('strong');strong.textContent='Indicative subtotal: '+money(material+cutting+edging);el.append(strong);
-const detail=document.createElement('p');detail.textContent='Material '+money(material)+' + cutting '+money(cutting)+' + edgebanding '+money(edging)+' ('+edge.toFixed(2)+'m).';el.append(detail);
-for(const row of rows){const div=document.createElement('div');div.textContent=row;el.append(div)}
-const warning=document.createElement('p');warning.textContent='IMPORTANT: Area-only estimation can undercount sheets. No true nesting, grain constraints, exact part spacing, supplier pricing, setup, CNC, delivery or VAT calculation has been performed. Do not use this figure as an automatic checkout price.';warning.style.color='#9b4a12';el.append(warning);
+btn.addEventListener('click',()=>{
+  localStorage.setItem(STORE,JSON.stringify(Object.fromEntries(ids.map(id=>[id,$(id).value]))));
+  let panels=[];try{panels=JSON.parse(localStorage.getItem('cncPanels')||'[]')}catch(e){}
+  if(!panels.length){p.textContent='Add panels to the cut-list builder first.';return}
+  const L=Number($('ppSheetLength').value),W=Number($('ppSheetWidth').value),cost=Number($('ppSheetPrice').value),cut=Number($('ppCutPrice').value);
+  if(!(L>50&&W>50&&cost>0&&cut>=0)){p.textContent='Enter a valid sheet size and actual sheet cost.';return}
+  const grouped=new Map();let pieces=0,edging=0;
+  for(const panel of panels){
+    const len=Number(panel.length),wid=Number(panel.width),qty=Number(panel.quantity);
+    if(!(len>0&&wid>0&&Number.isInteger(qty)&&qty>0)){p.textContent='A cut-list line has invalid dimensions or quantity.';return}
+    if(len>L-50||wid>W-50){p.textContent='At least one panel exceeds the usable sheet in its specified grain orientation.';return}
+    const key=[panel.material,panel.finish,panel.thickness].join(' | ');
+    if(!grouped.has(key))grouped.set(key,[]);
+    for(let i=0;i<qty;i++)grouped.get(key).push({w:len,h:wid});
+    pieces+=qty;
+    edging+=((panel.l1?len:0)+(panel.l2?len:0)+(panel.w1?wid:0)+(panel.w2?wid:0))*qty/1000;
+    if(pieces>5000){p.textContent='Over 5,000 parts: request a manual production quote.';return}
+  }
+  let sheets=0,rows=[],used=0;
+  for(const [key,parts] of grouped){
+    parts.sort((a,b)=>b.w*b.h-a.w*a.h);
+    const bins=nest(parts,L-50,W-50);
+    if(!bins){p.textContent='At least one panel cannot be nested with its current orientation.';return}
+    sheets+=bins.length;used+=bins.reduce((sum,bin)=>sum+bin.used,0);
+    rows.push(key+': '+bins.length+' sheet(s), '+parts.length+' parts');
+  }
+  const board=sheets*cost, cutting=pieces*cut, edge=edging*2.47;
+  p.replaceChildren();
+  const heading=document.createElement('strong');heading.textContent='Estimated subtotal: '+money(board+cutting+edge);p.append(heading);
+  const line=document.createElement('p');line.textContent=sheets+' sheets × '+money(cost)+' = '+money(board)+' material; cutting '+money(cutting)+'; edging '+money(edge)+' ('+edging.toFixed(2)+'m).';p.append(line);
+  for(const row of rows){const d=document.createElement('div');d.textContent=row;p.append(d)}
+  const warning=document.createElement('p');warning.style.color='#9b4a12';
+  warning.textContent='Planning estimate only. Fixed-grain first-fit rectangular nesting, 25 mm border and 12 mm spacing; this is not CAM-ready geometry or proven optimal yield. It does not include CNC operations, tooling/setup charges, delivery, VAT or verified material availability. Check real nesting and prices before issuing a firm quote.';p.append(warning);
 });
 })();
 </script></body></html>
