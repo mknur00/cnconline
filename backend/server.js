@@ -306,7 +306,7 @@ async function main(){
           if(user.role!=='super_admin')return json(res,403,{error:'Only the administrator can edit pricing'});
           const data=await body(req);
           if(data.type==='rate'){
-            if(!['edgebanding_per_metre','cutting_per_metre'].includes(data.key)||!Number.isSafeInteger(data.value_pence)||data.value_pence<0||data.value_pence>10000000)return json(res,400,{error:'Invalid rate'});
+            if(!['edgebanding_per_metre','cutting_per_metre','internal_cutting_cost_per_metre','internal_edging_cost_per_metre'].includes(data.key)||!Number.isSafeInteger(data.value_pence)||data.value_pence<0||data.value_pence>10000000)return json(res,400,{error:'Invalid rate'});
             await pool.query('INSERT INTO costing_settings(key,value_pence) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value_pence=EXCLUDED.value_pence,updated_at=now()',[data.key,data.value_pence]);
           }else if(data.type==='material'){
             const material=String(data.material_name||'').trim().slice(0,150),thickness=Number(data.thickness_mm),price=Number(data.price_pence);
@@ -352,8 +352,12 @@ async function main(){
           const material_pence=missing_materials.length?null:sheets.reduce((sum,x)=>sum+x.sheet_price_pence,0);
           const cutting_pence=cutting_rate>0?Math.round(cutMm/1000*cutting_rate):null;
           const edging_pence=Number.isSafeInteger(edging_rate)?Math.round(edgeMm/1000*edging_rate):null;
+          const internalCutRate=rate.internal_cutting_cost_per_metre,internalEdgeRate=rate.internal_edging_cost_per_metre;
+          const internal_cutting_cost_pence=Number.isSafeInteger(internalCutRate)?Math.round(cutMm/1000*internalCutRate):null;
+          const internal_edging_cost_pence=Number.isSafeInteger(internalEdgeRate)?Math.round(edgeMm/1000*internalEdgeRate):null;
+          const internal_total_cost_pence=supplier_material_cost_pence!==null&&internal_cutting_cost_pence!==null&&internal_edging_cost_pence!==null&&!cncRequired&&!layout.unplaced.length?supplier_material_cost_pence+internal_cutting_cost_pence+internal_edging_cost_pence:null;
           const ready=material_pence!==null&&cutting_pence!==null&&edging_pence!==null&&!layout.unplaced.length&&!cncRequired;
-          return json(res,200,{quote_id:quoteEstimateMatch[1],sheets,unplaced_count:layout.unplaced.length,missing_materials,cnc_pricing_required:cncRequired,material_pence,cutting_pence,edging_pence,cutting_metres:Math.round(cutMm/10)/100,edging_metres:Math.round(edgeMm/10)/100,total_pence:ready?material_pence+cutting_pence+edging_pence:null,ready_for_review:ready,missing_supplier_costs,supplier_material_cost_pence,indicative_material_spread_pence:ready&&supplier_material_cost_pence!==null?material_pence-supplier_material_cost_pence:null,notice:'Internal indicative estimate only. Verify nesting, grain direction, machining and final prices before sending a quote.'});
+          return json(res,200,{quote_id:quoteEstimateMatch[1],sheets,unplaced_count:layout.unplaced.length,missing_materials,cnc_pricing_required:cncRequired,material_pence,cutting_pence,edging_pence,cutting_metres:Math.round(cutMm/10)/100,edging_metres:Math.round(edgeMm/10)/100,total_pence:ready?material_pence+cutting_pence+edging_pence:null,ready_for_review:ready,missing_supplier_costs,supplier_material_cost_pence,indicative_material_spread_pence:ready&&supplier_material_cost_pence!==null?material_pence-supplier_material_cost_pence:null,internal_cutting_cost_pence,internal_edging_cost_pence,internal_total_cost_pence,indicative_job_contribution_pence:ready&&internal_total_cost_pence!==null?material_pence+cutting_pence+edging_pence-internal_total_cost_pence:null,notice:'Internal indicative estimate only. Verify nesting, grain direction, machining and final prices before sending a quote.'});
         }
         const estimateMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/estimate$/i);
         if(estimateMatch&&req.method==='GET'){
