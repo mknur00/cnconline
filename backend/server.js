@@ -112,14 +112,14 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES ($1,'customer',$2,'create')",[user.id,result.rows[0].id]);
           return json(res,201,{customer:result.rows[0]});
         }
-        const uploadMatch=pathname.match(/^\\/api\\/quotes\\/([0-9a-f-]{36})\\/uploads\\/([0-9a-f-]{36})$/i);
+        const uploadMatch=pathname.match(/^\/api\/quotes\/([0-9a-f-]{36})\/uploads\/([0-9a-f-]{36})$/i);
         if(uploadMatch&&req.method==='GET'){
           if(!['super_admin','manager','sales','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
           const result=await pool.query('SELECT original_filename,file_data FROM enquiry_uploads WHERE quote_id=$1 AND id=$2',[uploadMatch[1],uploadMatch[2]]);
           if(!result.rowCount)return json(res,404,{error:'File not found'});
           const row=result.rows[0];res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(row.original_filename),'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});return res.end(row.file_data);
         }
-        const uploadsMatch=pathname.match(/^\\/api\\/quotes\\/([0-9a-f-]{36})\\/uploads$/i);
+        const uploadsMatch=pathname.match(/^\/api\/quotes\/([0-9a-f-]{36})\/uploads$/i);
         if(uploadsMatch&&req.method==='GET'){
           if(!['super_admin','manager','sales','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
           const result=await pool.query('SELECT id,original_filename,byte_size,created_at FROM enquiry_uploads WHERE quote_id=$1 ORDER BY created_at',[uploadsMatch[1]]);
