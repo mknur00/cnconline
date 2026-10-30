@@ -70,7 +70,7 @@ async function main(){
           const data=await body(req,200000);
           if(data.website)return json(res,200,{ok:true});
           const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim();
-          if(name.length<2||name.length>200||email.length>255||phone.length>60||(!email&&!phone)||(email&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)))return json(res,400,{error:'Provide your name and a valid email or phone number.'});
+          if(name.length<2||name.length>200||email.length>255||phone.length>60||(!email&&!phone)||(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return json(res,400,{error:'Provide your name and a valid email or phone number.'});
           if(!Array.isArray(data.panels)||!data.panels.length||data.panels.length>100)return json(res,400,{error:'Add between 1 and 100 panel lines.'});
           const parts=[];
           for(const p of data.panels){
