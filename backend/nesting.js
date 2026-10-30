@@ -22,7 +22,7 @@ function nestParts(parts, opts = {}) {
     const groupLength=isBoardSheet?2440:2800;
     const groupWidth=isBoardSheet?1220:2070;
     const maxX=groupLength-margin,maxY=groupWidth-margin;
-    items.sort((a,b)=>Math.max(b.length,b.width)-Math.max(a.length,a.width));
+    items.sort((a,b)=>(b.length*b.width)-(a.length*a.width));
     const groupSheets=[];
     for(const p of items){
       const orientations=[{w:p.length,h:p.width,rotated:false}];
@@ -32,7 +32,7 @@ function nestParts(parts, opts = {}) {
         for(const orientation of orientations){
           let x=sheet.x,y=sheet.y,rowHeight=sheet.rowHeight;
           if(x+orientation.w>maxX){x=margin;y+=rowHeight+gap;rowHeight=0;}
-          if(y+orientation.h<=maxY){
+          if(x+orientation.w<=maxX&&y+orientation.h<=maxY){
             const candidate={sheet,x,y,rowHeight,orientation,score:y*groupLength+x};
             if(!best||candidate.score<best.score)best=candidate;
           }
