@@ -5,7 +5,7 @@ function nestParts(parts, opts = {}) {
   const margin=Number(opts.margin??25),gap=Number(opts.gap??12);
   if(![sheetLength,sheetWidth,margin,gap].every(Number.isFinite)||sheetLength<=0||sheetWidth<=0||margin<0||gap<0||margin*2>=Math.min(sheetLength,sheetWidth))throw Error('Invalid sheet settings');
   if(sheetLength>10000||sheetWidth>10000||gap>100||margin>500)throw Error('Sheet settings out of range');
-  const sheets=[],unplaced=[],maxX=sheetLength-margin,maxY=sheetWidth-margin;
+  const sheets=[],unplaced=[];
   const expanded=[];
   for(const p of parts){
     const qty=Number(p.quantity),length=Number(p.length_mm),width=Number(p.width_mm);
@@ -17,6 +17,11 @@ function nestParts(parts, opts = {}) {
   const groups=new Map();
   for(const p of expanded){const key=JSON.stringify([p.material,p.thickness_mm]);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}
   for(const [key,items] of groups){
+    const groupMaterial=String(items[0]?.material||'').toLowerCase();
+    const isBoardSheet=/\\b(mdf|plywood|ply|birch ply|marine ply)\\b/i.test(groupMaterial);
+    const groupLength=isBoardSheet?2440:2800;
+    const groupWidth=isBoardSheet?1220:2070;
+    const maxX=groupLength-margin,maxY=groupWidth-margin;
     items.sort((a,b)=>Math.max(b.length,b.width)-Math.max(a.length,a.width));
     const groupSheets=[];
     for(const p of items){
@@ -28,13 +33,13 @@ function nestParts(parts, opts = {}) {
           let x=sheet.x,y=sheet.y,rowHeight=sheet.rowHeight;
           if(x+orientation.w>maxX){x=margin;y+=rowHeight+gap;rowHeight=0;}
           if(y+orientation.h<=maxY){
-            const candidate={sheet,x,y,rowHeight,orientation,score:y*sheetLength+x};
+            const candidate={sheet,x,y,rowHeight,orientation,score:y*groupLength+x};
             if(!best||candidate.score<best.score)best=candidate;
           }
         }
       }
       if(!best){
-        const orientation=orientations.find(o=>o.w<=sheetLength-2*margin&&o.h<=sheetWidth-2*margin);
+        const orientation=orientations.find(o=>o.w<=groupLength-2*margin&&o.h<=groupWidth-2*margin);
         if(!orientation){unplaced.push(p);continue;}
         const sheet={material:p.material,thickness_mm:p.thickness_mm,x:margin,y:margin,rowHeight:0,placements:[]};
         groupSheets.push(sheet);
@@ -44,7 +49,7 @@ function nestParts(parts, opts = {}) {
       sheet.placements.push({part_id:p.id,part_name:p.part_name,piece:p.piece,x,y,width:orientation.w,height:orientation.h,rotated:orientation.rotated});
       sheet.x=x+orientation.w+gap;sheet.y=y;sheet.rowHeight=Math.max(best.rowHeight,orientation.h);
     }
-    for(const sheet of groupSheets)sheets.push({material:sheet.material,thickness_mm:sheet.thickness_mm,placements:sheet.placements});
+    for(const sheet of groupSheets)sheets.push({material:sheet.material,thickness_mm:sheet.thickness_mm,sheetLength:groupLength,sheetWidth:groupWidth,placements:sheet.placements});
   }
   return {sheetLength,sheetWidth,margin,gap,sheets,unplaced,notice:'Visual estimate only. Verify material, grain, clamps, tool clearance and actual CNC toolpaths before cutting.'};
 }
