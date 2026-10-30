@@ -77,9 +77,10 @@ async function main(){
             const length=Number(p.length),width=Number(p.width),quantity=Number(p.quantity),thickness=Number(p.thickness);
             const material=String(p.material||'').trim().slice(0,200),part=String(p.part||'Panel').trim().slice(0,120);
             if(!material||!part||![length,width,quantity,thickness].every(Number.isFinite)||!Number.isInteger(length)||!Number.isInteger(width)||!Number.isInteger(quantity)||length<1||width<1||length>10000||width>10000||quantity<1||quantity>10000||thickness<=0||thickness>100)return json(res,400,{error:'Invalid panel dimensions or thickness.'});
-            const isMdfPly=/mdf|plywood/i.test(material),fire=/fire\\s*rated\\s*mdf/i.test(material);
-            const valid=fire?[12,18]:isMdfPly?[6,9,12,18]:[18];
+            const isMdfPly=/mdf|plywood/i.test(material),fire=/fire\\s*rated\\s*mdf/i.test(material),sign=/foamex|aluminium composite/i.test(material);
+            const valid=/foamex/i.test(material)?[3,5,10]:/aluminium composite/i.test(material)?[3,4]:fire?[12,18]:isMdfPly?[6,9,12,18]:[18];
             if(!valid.includes(thickness))return json(res,400,{error:'Thickness not available for '+material});
+            if(sign&&(p.l1||p.l2||p.w1||p.w2||['edge','both'].includes(p.service)))return json(res,400,{error:'Sign materials cannot have edgebanding.'});
             parts.push({part,material,length,width,quantity,thickness,finish:String(p.finish||'').slice(0,120),service:String(p.service||'').slice(0,40),edgeType:String(p.edgeType||'').slice(0,60),l1:p.l1===true,l2:p.l2===true,w1:p.w1===true,w2:p.w2===true});
           }
           const client=await pool.connect();
