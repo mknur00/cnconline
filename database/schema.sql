@@ -146,6 +146,8 @@ CREATE TABLE IF NOT EXISTS material_sheet_prices (
   UNIQUE(material_name,thickness_mm)
 );
 
+ALTER TABLE material_sheet_prices ADD COLUMN IF NOT EXISTS supplier_cost_pence bigint;
+
 -- Uploaded customer enquiry attachments, stored in PostgreSQL for reliable persistence.
 CREATE TABLE IF NOT EXISTS enquiry_uploads (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
