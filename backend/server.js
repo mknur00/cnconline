@@ -77,6 +77,42 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES ($1,'customer',$2,'create')",[user.id,result.rows[0].id]);
           return json(res,201,{customer:result.rows[0]});
         }
+        if(pathname==='/api/quotes'&&req.method==='GET'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query("SELECT q.id,q.quote_number,q.status,q.total_pence,q.created_at,c.name AS customer_name,c.company_name FROM quotes q JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC LIMIT 100");
+          return json(res,200,{quotes:result.rows});
+        }
+        if(pathname==='/api/quotes'&&req.method==='POST'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req);
+          if(!Array.isArray(data.items)||data.items.length<1||data.items.length>100)return json(res,400,{error:'Include between 1 and 100 quote items'});
+          if(typeof data.customer_id!=='string'||!(/^[0-9a-f-]{36}$/i.test(data.customer_id)))return json(res,400,{error:'Select a customer'});
+          const items=[];
+          for(const item of data.items){
+            const description=String(item.description||'').trim().slice(0,500);
+            const quantity=Number(item.quantity);
+            const unitPrice=Number(item.unit_price_pence);
+            if(!description||!Number.isFinite(quantity)||quantity<=0||quantity>100000||!Number.isSafeInteger(unitPrice)||unitPrice<0||unitPrice>100000000)return json(res,400,{error:'Invalid quote item'});
+            const lineTotal=Math.round(quantity*unitPrice);
+            if(!Number.isSafeInteger(lineTotal))return json(res,400,{error:'Quote amount too large'});
+            items.push({description,quantity,unitPrice,lineTotal,unit:String(item.unit||'each').slice(0,30)});
+          }
+          const subtotal=items.reduce((sum,item)=>sum+item.lineTotal,0);
+          const discount=Number(data.discount_pence||0);
+          const vat=Number(data.vat_pence||0);
+          if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Invalid quote totals'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const customer=await client.query('SELECT id FROM customers WHERE id=$1',[data.customer_id]);
+            if(!customer.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Customer not found'});}
+            const result=await client.query("INSERT INTO quotes(customer_id,subtotal_pence,discount_pence,vat_pence,total_pence,customer_notes,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$7) RETURNING id,quote_number,status,total_pence",[data.customer_id,subtotal,discount,vat,subtotal-discount+vat,String(data.customer_notes||'').slice(0,2000),user.id]);
+            for(let i=0;i<items.length;i++){const item=items[i];await client.query('INSERT INTO quote_items(quote_id,sort_order,description,quantity,unit,unit_price_pence,line_total_pence) VALUES($1,$2,$3,$4,$5,$6,$7)',[result.rows[0].id,i,item.description,item.quantity,item.unit,item.unitPrice,item.lineTotal]);}
+            await client.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'quote',$2,'create')",[user.id,result.rows[0].id]);
+            await client.query('COMMIT');
+            return json(res,201,{quote:result.rows[0]});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
