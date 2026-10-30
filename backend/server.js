@@ -294,6 +294,43 @@ async function main(){
           }else return json(res,400,{error:'Invalid costing type'});
           return json(res,200,{ok:true});
         }
+        // Staff-only, non-binding estimate for submitted public cut lists.
+        // Never updates a quotation or exposes prices to customers.
+        const quoteEstimateMatch=pathname.match(/^\/api\/quotes\/([0-9a-f-]{36})\/estimate$/i);
+        if(quoteEstimateMatch&&req.method==='GET'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const [items,prices,rates]=await Promise.all([
+            pool.query('SELECT specifications,quantity FROM quote_items WHERE quote_id=$1 ORDER BY sort_order',[quoteEstimateMatch[1]]),
+            pool.query('SELECT material_name,thickness_mm,price_pence FROM material_sheet_prices'),
+            pool.query('SELECT key,value_pence FROM costing_settings')
+          ]);
+          if(!items.rowCount)return json(res,404,{error:'Quote not found or has no items'});
+          const parts=[];let edgeMm=0,cutMm=0,cncRequired=false;
+          for(const item of items.rows){
+            const p=item.specifications||{},qty=Number(item.quantity),length=Number(p.length),width=Number(p.width),thickness=Number(p.thickness);
+            if(!p.material||![qty,length,width,thickness].every(Number.isFinite)||qty<1||length<=0||width<=0||thickness<=0)return json(res,422,{error:'Quotation has incomplete panel specifications; manual pricing required'});
+            const sign=/foamex|aluminium composite|dibond/i.test(p.material);
+            if(sign&&(p.l1||p.l2||p.w1||p.w2))return json(res,422,{error:'Sign material cannot be edged'});
+            if(/cnc/i.test(String(p.service||'')))cncRequired=true;
+            parts.push({id:crypto.randomUUID(),part_name:p.part||'Panel',material:String(p.material),thickness_mm:thickness,length_mm:length,width_mm:width,quantity:qty,grain_direction:'none'});
+            edgeMm+=qty*((p.l1?length:0)+(p.l2?length:0)+(p.w1?width:0)+(p.w2?width:0));
+            cutMm+=qty*2*(length+width);
+          }
+          let layout;try{layout=nestParts(parts);}catch(e){return json(res,422,{error:e.message});}
+          const rate=Object.fromEntries(rates.rows.map(x=>[x.key,Number(x.value_pence)]));
+          const sheets=layout.sheets.map(sh=>{
+            const match=prices.rows.find(p=>p.material_name.toLowerCase()===sh.material.toLowerCase()&&Number(p.thickness_mm)===Number(sh.thickness_mm));
+            return {material:sh.material,thickness_mm:sh.thickness_mm,quantity:1,sheet_price_pence:match?Number(match.price_pence):null};
+          });
+          const missing_materials=[...new Set(sheets.filter(x=>x.sheet_price_pence===null).map(x=>x.material+' '+x.thickness_mm+'mm'))];
+          const cutting_rate=rate.cutting_per_metre||0;
+          const edging_rate=rate.edgebanding_per_metre;
+          const material_pence=missing_materials.length?null:sheets.reduce((sum,x)=>sum+x.sheet_price_pence,0);
+          const cutting_pence=cutting_rate>0?Math.round(cutMm/1000*cutting_rate):null;
+          const edging_pence=Number.isSafeInteger(edging_rate)?Math.round(edgeMm/1000*edging_rate):null;
+          const ready=material_pence!==null&&cutting_pence!==null&&edging_pence!==null&&!layout.unplaced.length&&!cncRequired;
+          return json(res,200,{quote_id:quoteEstimateMatch[1],sheets,unplaced_count:layout.unplaced.length,missing_materials,cnc_pricing_required:cncRequired,material_pence,cutting_pence,edging_pence,cutting_metres:Math.round(cutMm/10)/100,edging_metres:Math.round(edgeMm/10)/100,total_pence:ready?material_pence+cutting_pence+edging_pence:null,ready_for_review:ready,notice:'Internal indicative estimate only. Verify nesting, grain direction, machining and final prices before sending a quote.'});
+        }
         const estimateMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/estimate$/i);
         if(estimateMatch&&req.method==='GET'){
           const [parts,prices,rates]=await Promise.all([pool.query('SELECT * FROM job_parts WHERE job_id=$1',[estimateMatch[1]]),pool.query('SELECT * FROM material_sheet_prices'),pool.query('SELECT key,value_pence FROM costing_settings')]);
