@@ -323,7 +323,7 @@ async function main(){
           if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
           const [items,prices,rates]=await Promise.all([
             pool.query('SELECT specifications,quantity FROM quote_items WHERE quote_id=$1 ORDER BY sort_order',[quoteEstimateMatch[1]]),
-            pool.query('SELECT material_name,thickness_mm,price_pence FROM material_sheet_prices'),
+            pool.query('SELECT material_name,thickness_mm,price_pence,supplier_cost_pence FROM material_sheet_prices'),
             pool.query('SELECT key,value_pence FROM costing_settings')
           ]);
           if(!items.rowCount)return json(res,404,{error:'Quote not found or has no items'});
@@ -342,16 +342,18 @@ async function main(){
           const rate=Object.fromEntries(rates.rows.map(x=>[x.key,Number(x.value_pence)]));
           const sheets=layout.sheets.map(sh=>{
             const match=prices.rows.find(p=>p.material_name.toLowerCase()===sh.material.toLowerCase()&&Number(p.thickness_mm)===Number(sh.thickness_mm));
-            return {material:sh.material,thickness_mm:sh.thickness_mm,quantity:1,sheet_price_pence:match?Number(match.price_pence):null};
+            return {material:sh.material,thickness_mm:sh.thickness_mm,quantity:1,sheet_price_pence:match?Number(match.price_pence):null,supplier_cost_pence:match&&match.supplier_cost_pence!==null?Number(match.supplier_cost_pence):null};
           });
           const missing_materials=[...new Set(sheets.filter(x=>x.sheet_price_pence===null).map(x=>x.material+' '+x.thickness_mm+'mm'))];
+          const missing_supplier_costs=[...new Set(sheets.filter(x=>x.supplier_cost_pence===null).map(x=>x.material+' '+x.thickness_mm+'mm'))];
+          const supplier_material_cost_pence=missing_supplier_costs.length?null:sheets.reduce((sum,x)=>sum+x.supplier_cost_pence,0);
           const cutting_rate=rate.cutting_per_metre||0;
           const edging_rate=rate.edgebanding_per_metre;
           const material_pence=missing_materials.length?null:sheets.reduce((sum,x)=>sum+x.sheet_price_pence,0);
           const cutting_pence=cutting_rate>0?Math.round(cutMm/1000*cutting_rate):null;
           const edging_pence=Number.isSafeInteger(edging_rate)?Math.round(edgeMm/1000*edging_rate):null;
           const ready=material_pence!==null&&cutting_pence!==null&&edging_pence!==null&&!layout.unplaced.length&&!cncRequired;
-          return json(res,200,{quote_id:quoteEstimateMatch[1],sheets,unplaced_count:layout.unplaced.length,missing_materials,cnc_pricing_required:cncRequired,material_pence,cutting_pence,edging_pence,cutting_metres:Math.round(cutMm/10)/100,edging_metres:Math.round(edgeMm/10)/100,total_pence:ready?material_pence+cutting_pence+edging_pence:null,ready_for_review:ready,notice:'Internal indicative estimate only. Verify nesting, grain direction, machining and final prices before sending a quote.'});
+          return json(res,200,{quote_id:quoteEstimateMatch[1],sheets,unplaced_count:layout.unplaced.length,missing_materials,cnc_pricing_required:cncRequired,material_pence,cutting_pence,edging_pence,cutting_metres:Math.round(cutMm/10)/100,edging_metres:Math.round(edgeMm/10)/100,total_pence:ready?material_pence+cutting_pence+edging_pence:null,ready_for_review:ready,missing_supplier_costs,supplier_material_cost_pence,indicative_material_spread_pence:ready&&supplier_material_cost_pence!==null?material_pence-supplier_material_cost_pence:null,notice:'Internal indicative estimate only. Verify nesting, grain direction, machining and final prices before sending a quote.'});
         }
         const estimateMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/estimate$/i);
         if(estimateMatch&&req.method==='GET'){
