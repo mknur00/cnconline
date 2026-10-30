@@ -83,6 +83,8 @@ async function main(){
             if(sign&&(p.l1||p.l2||p.w1||p.w2||['edge','both'].includes(p.service)))return json(res,400,{error:'Sign materials cannot have edgebanding.'});
             parts.push({part,material,length,width,quantity,thickness,finish:String(p.finish||'').slice(0,120),service:String(p.service||'').slice(0,40),edgeType:String(p.edgeType||'').slice(0,60),l1:p.l1===true,l2:p.l2===true,w1:p.w1===true,w2:p.w2===true});
           }
+          const attachments=[];let totalBytes=0;
+          if(data.files!==undefined){if(!Array.isArray(data.files)||data.files.length>5)return json(res,400,{error:'Attach no more than 5 files.'});for(const file of data.files){const name=String(file.name||'').slice(0,200);if(!/\\.(csv|txt|pdf|png|jpe?g|webp|dxf|dwg|svg|xlsx?|ods|zip)$/i.test(name)||typeof file.base64!=='string'||file.base64.length>7000000||!/^[A-Za-z0-9+/]*={0,2}$/.test(file.base64))return json(res,400,{error:'Unsupported attachment: '+name});const bytes=Buffer.from(file.base64,'base64');totalBytes+=bytes.length;if(!bytes.length||bytes.length>5242880||totalBytes>5242880)return json(res,400,{error:'Attachments must total 5 MB or less.'});attachments.push({name,bytes,mime:String(file.type||'application/octet-stream').slice(0,100)});}}
           const client=await pool.connect();
           try{
             await client.query('BEGIN');
@@ -92,6 +94,7 @@ async function main(){
               const p=parts[i],description=p.part+' — '+p.material+(p.finish?' ('+p.finish+')':'')+' — '+p.thickness+'mm — '+p.length+' × '+p.width+'mm — '+p.service;
               await client.query('INSERT INTO quote_items(quote_id,sort_order,description,quantity,unit,unit_price_pence,line_total_pence,specifications) VALUES($1,$2,$3,$4,$5,0,0,$6::jsonb)',[quote.rows[0].id,i,description,p.quantity,'panel',JSON.stringify(p)]);
             }
+            for(const file of attachments)await client.query('INSERT INTO enquiry_uploads(quote_id,original_filename,mime_type,byte_size,file_data) VALUES($1,$2,$3,$4,$5)',[quote.rows[0].id,file.name,file.mime,file.bytes.length,file.bytes]);
             await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_cutlist')",[quote.rows[0].id]);
             await client.query('COMMIT');
             return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
