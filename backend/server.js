@@ -277,7 +277,7 @@ async function main(){
           return json(res,200,{job:result.rows[0]});
         }
         if(pathname==='/api/costing'&&req.method==='GET'){
-          const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
+          const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
         }
         if(pathname==='/api/costing/bulk'&&req.method==='POST'){
