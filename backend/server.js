@@ -186,6 +186,32 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
           return json(res,200,{job:result.rows[0]});
         }
+        const partsMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/parts$/i);
+        if(partsMatch&&req.method==='GET'){
+          const result=await pool.query('SELECT * FROM job_parts WHERE job_id=$1 ORDER BY sort_order,created_at',[partsMatch[1]]);
+          return json(res,200,{parts:result.rows});
+        }
+        if(partsMatch&&req.method==='POST'){
+          if(!['super_admin','manager','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req);
+          const name=String(data.part_name||'').trim().slice(0,200),material=String(data.material||'').trim().slice(0,200);
+          const thickness=Number(data.thickness_mm),length=Number(data.length_mm),width=Number(data.width_mm),qty=Number(data.quantity);
+          if(!name||!material||![thickness,length,width].every(x=>Number.isFinite(x)&&x>0&&x<=10000)||!Number.isInteger(qty)||qty<1||qty>10000)return json(res,400,{error:'Invalid panel dimensions, material or quantity'});
+          const grain=['none','length','width'].includes(data.grain_direction)?data.grain_direction:'none';
+          const exists=await pool.query('SELECT id FROM jobs WHERE id=$1',[partsMatch[1]]);
+          if(!exists.rowCount)return json(res,404,{error:'Job not found'});
+          const result=await pool.query('INSERT INTO job_parts(job_id,part_name,material,thickness_mm,length_mm,width_mm,quantity,grain_direction,edge_top,edge_bottom,edge_left,edge_right,notes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',[partsMatch[1],name,material,thickness,length,width,qty,grain,data.edge_top===true,data.edge_bottom===true,data.edge_left===true,data.edge_right===true,String(data.notes||'').slice(0,1000)]);
+          await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'add_part')",[user.id,partsMatch[1]]);
+          return json(res,201,{part:result.rows[0]});
+        }
+        const partDelete=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/parts\/([0-9a-f-]{36})$/i);
+        if(partDelete&&req.method==='DELETE'){
+          if(!['super_admin','manager','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query('DELETE FROM job_parts WHERE id=$1 AND job_id=$2 RETURNING id',[partDelete[2],partDelete[1]]);
+          if(!result.rowCount)return json(res,404,{error:'Part not found'});
+          await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'delete_part')",[user.id,partDelete[1]]);
+          return json(res,200,{ok:true});
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
