@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
+const { nestParts } = require('./nesting');
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT || 3000);
 const pool = process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL, max: 5 }) : null;
@@ -185,6 +186,12 @@ async function main(){
           if(!result.rowCount)return json(res,404,{error:'Job not found'});
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
           return json(res,200,{job:result.rows[0]});
+        }
+        const nestMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/nest$/i);
+        if(nestMatch&&req.method==='GET'){
+          const result=await pool.query('SELECT * FROM job_parts WHERE job_id=$1 ORDER BY sort_order,created_at',[nestMatch[1]]);
+          const options={sheetLength:Number(url.searchParams.get('length')||2800),sheetWidth:Number(url.searchParams.get('width')||2070),margin:Number(url.searchParams.get('margin')||25),gap:12};
+          try{return json(res,200,nestParts(result.rows,options));}catch(e){return json(res,400,{error:e.message});}
         }
         const partsMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/parts$/i);
         if(partsMatch&&req.method==='GET'){
