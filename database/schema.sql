@@ -145,3 +145,15 @@ CREATE TABLE IF NOT EXISTS material_sheet_prices (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE(material_name,thickness_mm)
 );
+
+-- Uploaded customer enquiry attachments, stored in PostgreSQL for reliable persistence.
+CREATE TABLE IF NOT EXISTS enquiry_uploads (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ quote_id uuid NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+ original_filename text NOT NULL,
+ mime_type text,
+ byte_size integer NOT NULL CHECK (byte_size > 0 AND byte_size <= 5242880),
+ file_data bytea NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS enquiry_uploads_quote_idx ON enquiry_uploads(quote_id);
