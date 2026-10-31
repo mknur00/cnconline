@@ -284,6 +284,20 @@ async function main(){
           const jobs=rows.rows.map(x=>{const c=costMap.get(x.id),quoted=x.total_pence===null?null:Number(x.total_pence),actual=c?Number(c.total):0;return {id:x.id,status:x.status,quote_number:x.quote_number,customer_name:x.customer_name,quoted_total_pence:quoted,recorded_cost_pence:actual,cost_entries:c?c.entries:0,recorded_contribution_pence:quoted===null?null:quoted-actual,costs_complete:false};});
           return json(res,200,{jobs,notice:'Recorded contribution is provisional, not net profit. Costs may be incomplete.'});
         }
+        const reviewMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/cost-review$/i);
+        if(reviewMatch&&req.method==='GET'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query('SELECT material_checked,machining_checked,labour_checked,overhead_checked,reviewed_at FROM job_cost_reviews WHERE job_id=$1',[reviewMatch[1]]);
+          return json(res,200,{review:result.rows[0]||{material_checked:false,machining_checked:false,labour_checked:false,overhead_checked:false,reviewed_at:null}});
+        }
+        if(reviewMatch&&req.method==='PUT'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),keys=['material_checked','machining_checked','labour_checked','overhead_checked'];
+          if(keys.some(k=>typeof d[k]!=='boolean'))return json(res,400,{error:'All four checklist values must be booleans'});
+          const result=await pool.query('INSERT INTO job_cost_reviews(job_id,material_checked,machining_checked,labour_checked,overhead_checked,reviewed_by,reviewed_at) SELECT id,$2,$3,$4,$5,$6,now() FROM jobs WHERE id=$1 ON CONFLICT(job_id) DO UPDATE SET material_checked=EXCLUDED.material_checked,machining_checked=EXCLUDED.machining_checked,labour_checked=EXCLUDED.labour_checked,overhead_checked=EXCLUDED.overhead_checked,reviewed_by=EXCLUDED.reviewed_by,reviewed_at=now() RETURNING job_id',[reviewMatch[1],d.material_checked,d.machining_checked,d.labour_checked,d.overhead_checked,user.id]);
+          if(!result.rowCount)return json(res,404,{error:'Job not found'});
+          return json(res,200,{ok:true,complete:keys.every(k=>d[k])});
+        }
         const actualMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/actual-costs$/i);
         if(actualMatch&&req.method==='GET'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
