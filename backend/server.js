@@ -280,8 +280,10 @@ async function main(){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
           const rows=await pool.query('SELECT j.id,j.status,q.quote_number,q.total_pence,c.name AS customer_name FROM jobs j JOIN customers c ON c.id=j.customer_id LEFT JOIN quotes q ON q.id=j.quote_id ORDER BY j.created_at DESC LIMIT 200');
           const costs=await pool.query('SELECT job_id,COALESCE(SUM(amount_pence),0)::bigint AS total,COUNT(*)::integer AS entries FROM job_actual_costs WHERE voided_at IS NULL GROUP BY job_id');
+          const reviews=await pool.query('SELECT job_id,material_checked,machining_checked,labour_checked,overhead_checked FROM job_cost_reviews');
+          const reviewMap=new Map(reviews.rows.map(x=>[x.job_id,x]));
           const costMap=new Map(costs.rows.map(x=>[x.job_id,x]));
-          const jobs=rows.rows.map(x=>{const c=costMap.get(x.id),quoted=x.total_pence===null?null:Number(x.total_pence),actual=c?Number(c.total):0;return {id:x.id,status:x.status,quote_number:x.quote_number,customer_name:x.customer_name,quoted_total_pence:quoted,recorded_cost_pence:actual,cost_entries:c?c.entries:0,recorded_contribution_pence:quoted===null?null:quoted-actual,costs_complete:false};});
+          const jobs=rows.rows.map(x=>{const c=costMap.get(x.id),quoted=x.total_pence===null?null:Number(x.total_pence),actual=c?Number(c.total):0;return {id:x.id,status:x.status,quote_number:x.quote_number,customer_name:x.customer_name,quoted_total_pence:quoted,recorded_cost_pence:actual,cost_entries:c?c.entries:0,recorded_contribution_pence:quoted===null?null:quoted-actual,costs_complete:(()=>{const v=reviewMap.get(x.id);return !!(v&&v.material_checked&&v.machining_checked&&v.labour_checked&&v.overhead_checked);})()};});
           return json(res,200,{jobs,notice:'Recorded contribution is provisional, not net profit. Costs may be incomplete.'});
         }
         const reviewMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/cost-review$/i);
