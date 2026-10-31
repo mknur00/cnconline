@@ -176,3 +176,14 @@ CREATE INDEX IF NOT EXISTS job_actual_costs_job_idx ON job_actual_costs(job_id);
 ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS voided_at timestamptz;
 ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS voided_by uuid REFERENCES staff_users(id) ON DELETE SET NULL;
 ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS void_reason text;
+
+-- Manager cost-completeness review, separate from the underlying ledger.
+CREATE TABLE IF NOT EXISTS job_cost_reviews (
+ job_id uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+ material_checked boolean NOT NULL DEFAULT false,
+ machining_checked boolean NOT NULL DEFAULT false,
+ labour_checked boolean NOT NULL DEFAULT false,
+ overhead_checked boolean NOT NULL DEFAULT false,
+ reviewed_by uuid REFERENCES staff_users(id) ON DELETE SET NULL,
+ reviewed_at timestamptz
+);
