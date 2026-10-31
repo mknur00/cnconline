@@ -171,3 +171,8 @@ CREATE TABLE IF NOT EXISTS job_actual_costs (
  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS job_actual_costs_job_idx ON job_actual_costs(job_id);
+
+-- Immutable correction history: costs are voided, never physically deleted.
+ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS voided_at timestamptz;
+ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS voided_by uuid REFERENCES staff_users(id) ON DELETE SET NULL;
+ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS void_reason text;
