@@ -187,3 +187,19 @@ CREATE TABLE IF NOT EXISTS job_cost_reviews (
  reviewed_by uuid REFERENCES staff_users(id) ON DELETE SET NULL,
  reviewed_at timestamptz
 );
+
+-- Any new or corrected actual cost invalidates the previous managerial review.
+-- A database trigger keeps this atomic even when costs are written outside the API.
+CREATE OR REPLACE FUNCTION invalidate_job_cost_review() RETURNS trigger AS $$
+BEGIN
+  UPDATE job_cost_reviews
+  SET material_checked=false, machining_checked=false, labour_checked=false,
+      overhead_checked=false, reviewed_at=NULL, reviewed_by=NULL
+  WHERE job_id=NEW.job_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS job_actual_cost_review_invalidate ON job_actual_costs;
+CREATE TRIGGER job_actual_cost_review_invalidate
+AFTER INSERT OR UPDATE OF voided_at ON job_actual_costs
+FOR EACH ROW EXECUTE FUNCTION invalidate_job_cost_review();
