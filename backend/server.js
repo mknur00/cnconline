@@ -281,8 +281,8 @@ async function main(){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
           const job=await pool.query('SELECT j.id,j.quote_id,q.total_pence AS quoted_total_pence,q.status AS quote_status FROM jobs j LEFT JOIN quotes q ON q.id=j.quote_id WHERE j.id=$1',[actualMatch[1]]);
           if(!job.rowCount)return json(res,404,{error:'Job not found'});
-          const costs=await pool.query('SELECT id,category,description,amount_pence,created_at FROM job_actual_costs WHERE job_id=$1 ORDER BY created_at,id',[actualMatch[1]]);
-          const actual_cost_pence=costs.rows.reduce((sum,x)=>sum+Number(x.amount_pence),0);
+          const costs=await pool.query('SELECT id,category,description,amount_pence,created_at,voided_at,void_reason FROM job_actual_costs WHERE job_id=$1 ORDER BY created_at,id',[actualMatch[1]]);
+          const actual_cost_pence=costs.rows.reduce((sum,x)=>sum+(x.voided_at?0:Number(x.amount_pence)),0);
           const quoted_total_pence=job.rows[0].quoted_total_pence===null?null:Number(job.rows[0].quoted_total_pence);
           return json(res,200,{job_id:actualMatch[1],quote_status:job.rows[0].quote_status,quoted_total_pence,costs:costs.rows,actual_cost_pence,recorded_cost_contribution_pence:quoted_total_pence===null?null:quoted_total_pence-actual_cost_pence,complete_costs_confirmed:false,notice:'Recorded costs may be incomplete. Contribution is not net profit.'});
         }
@@ -293,6 +293,15 @@ async function main(){
           const added=await pool.query('INSERT INTO job_actual_costs(job_id,category,description,amount_pence,created_by) SELECT j.id,$2,$3,$4,$5 FROM jobs j WHERE j.id=$1 RETURNING id',[actualMatch[1],category,description,amount,user.id]);
           if(!added.rowCount)return json(res,404,{error:'Job not found'});
           return json(res,201,{ok:true,id:added.rows[0].id});
+        }
+        const voidMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/actual-costs\/([0-9a-f-]{36})\/void$/i);
+        if(voidMatch&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req),reason=String(data.reason||'').trim();
+          if(reason.length<5||reason.length>500)return json(res,400,{error:'Correction reason must be 5–500 characters'});
+          const result=await pool.query('UPDATE job_actual_costs SET voided_at=now(),voided_by=$3,void_reason=$4 WHERE job_id=$1 AND id=$2 AND voided_at IS NULL RETURNING id',[voidMatch[1],voidMatch[2],user.id,reason]);
+          if(!result.rowCount)return json(res,404,{error:'Active cost entry not found'});
+          return json(res,200,{ok:true,id:result.rows[0].id});
         }
         if(pathname==='/api/costing'&&req.method==='GET'){
           const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
