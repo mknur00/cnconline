@@ -276,6 +276,11 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
           return json(res,200,{job:result.rows[0]});
         }
+        if(pathname==='/api/reports/job-contribution'&&req.method==='GET'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const rows=await pool.query('SELECT j.id,j.status,q.quote_number,q.total_pence,c.name AS customer_name FROM jobs j JOIN customers c ON c.id=j.customer_id LEFT JOIN quotes q ON q.id=j.quote_id ORDER BY j.created_at DESC LIMIT 200');
+          return json(res,200,{jobs:rows.rows,notice:'Quoted revenue only; costs may be incomplete.'});
+        }
         const actualMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/actual-costs$/i);
         if(actualMatch&&req.method==='GET'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
