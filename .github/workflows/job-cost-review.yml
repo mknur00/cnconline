@@ -1,0 +1,43 @@
+name: Job cost review regression
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'database/schema.sql'
+      - 'tests/job-cost-review.js'
+      - '.github/workflows/job-cost-review.yml'
+  workflow_dispatch:
+jobs:
+  cost-review:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: cnconline_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d cnconline_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/cnconline_test
+      PGPASSWORD: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+      - name: Create isolated test schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
+      - name: Seed a disposable test job
+        run: |
+          echo "TEST_JOB_ID=$(psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "WITH c AS (INSERT INTO customers(name) VALUES ('Automated Test Customer') RETURNING id) INSERT INTO jobs(customer_id) SELECT id FROM c RETURNING id")" >> "$GITHUB_ENV"
+      - name: Verify cost review invalidation and void exclusions
+        run: node tests/job-cost-review.js
