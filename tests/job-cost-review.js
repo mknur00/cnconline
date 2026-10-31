@@ -33,7 +33,15 @@ const client=new Client({connectionString:process.env.DATABASE_URL});
   await checkReset();
   const active=await client.query('SELECT count(*)::int AS count FROM job_actual_costs WHERE id=$1 AND voided_at IS NULL',[added.rows[0].id]);
   assert.equal(active.rows[0].count,0,'Voided cost must not be counted');
-  console.log('PASS: new cost resets review; void resets review; voided cost excluded');
+  // Verify aggregation excludes voided entries while retaining valid costs.
+  const activeCost=await client.query(`INSERT INTO job_actual_costs(job_id,category,description,amount_pence)
+   VALUES($1,'material','Test active sheet cost',2500) RETURNING id`,[id]);
+  const aggregate=await client.query(`SELECT COALESCE(SUM(amount_pence),0)::bigint AS total,COUNT(*)::integer AS entries
+   FROM job_actual_costs WHERE job_id=$1 AND voided_at IS NULL AND id IN ($2,$3)`,[id,added.rows[0].id,activeCost.rows[0].id]);
+  assert.equal(Number(aggregate.rows[0].total),2500,'Only active cost should contribute');
+  assert.equal(aggregate.rows[0].entries,1,'Only active cost should be counted');
+  await checkReset();
+  console.log('PASS: review invalidation and active-cost financial aggregation');
  }finally{
   await client.query('ROLLBACK').catch(()=>{});
   await client.end();
