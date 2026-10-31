@@ -159,3 +159,15 @@ CREATE TABLE IF NOT EXISTS enquiry_uploads (
  created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS enquiry_uploads_quote_idx ON enquiry_uploads(quote_id);
+
+-- Actual workshop costs are recorded against jobs, never customer quotations.
+CREATE TABLE IF NOT EXISTS job_actual_costs (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+ category text NOT NULL CHECK (category IN ('material','cutting','cnc','edgebanding','labour','waste','overhead','other')),
+ description text NOT NULL CHECK (length(description) BETWEEN 1 AND 250),
+ amount_pence bigint NOT NULL CHECK (amount_pence >= 0),
+ created_by uuid REFERENCES staff_users(id) ON DELETE SET NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS job_actual_costs_job_idx ON job_actual_costs(job_id);
