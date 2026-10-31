@@ -276,6 +276,24 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'update')",[user.id,jobMatch[1]]);
           return json(res,200,{job:result.rows[0]});
         }
+        const actualMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/actual-costs$/i);
+        if(actualMatch&&req.method==='GET'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const job=await pool.query('SELECT j.id,j.quote_id,q.total_pence AS quoted_total_pence,q.status AS quote_status FROM jobs j LEFT JOIN quotes q ON q.id=j.quote_id WHERE j.id=$1',[actualMatch[1]]);
+          if(!job.rowCount)return json(res,404,{error:'Job not found'});
+          const costs=await pool.query('SELECT id,category,description,amount_pence,created_at FROM job_actual_costs WHERE job_id=$1 ORDER BY created_at,id',[actualMatch[1]]);
+          const actual_cost_pence=costs.rows.reduce((sum,x)=>sum+Number(x.amount_pence),0);
+          const quoted_total_pence=job.rows[0].quoted_total_pence===null?null:Number(job.rows[0].quoted_total_pence);
+          return json(res,200,{job_id:actualMatch[1],quote_status:job.rows[0].quote_status,quoted_total_pence,costs:costs.rows,actual_cost_pence,recorded_cost_contribution_pence:quoted_total_pence===null?null:quoted_total_pence-actual_cost_pence,complete_costs_confirmed:false,notice:'Recorded costs may be incomplete. Contribution is not net profit.'});
+        }
+        if(actualMatch&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),category=String(d.category||''),description=String(d.description||'').trim(),amount=Number(d.amount_pence);
+          if(!['material','cutting','cnc','edgebanding','labour','waste','overhead','other'].includes(category)||!description||description.length>250||!Number.isSafeInteger(amount)||amount<0||amount>1000000000)return json(res,400,{error:'Invalid actual cost'});
+          const added=await pool.query('INSERT INTO job_actual_costs(job_id,category,description,amount_pence,created_by) SELECT j.id,$2,$3,$4,$5 FROM jobs j WHERE j.id=$1 RETURNING id',[actualMatch[1],category,description,amount,user.id]);
+          if(!added.rowCount)return json(res,404,{error:'Job not found'});
+          return json(res,201,{ok:true,id:added.rows[0].id});
+        }
         if(pathname==='/api/costing'&&req.method==='GET'){
           const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
