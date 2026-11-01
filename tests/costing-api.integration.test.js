@@ -54,6 +54,18 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
    const update=await request('/api/costing/supplier-cost',{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({material_name:'API TEST BOARD',thickness_mm:18,supplier_cost_pence:4100})});
    assert.equal(update.status,role==='super_admin'?200:403,'supplier cost update '+role);
   }
+  const headers={Cookie:managerCookie,'Content-Type':'application/json'};
+  const checklist={material_checked:true,machining_checked:true,labour_checked:true,overhead_checked:true};
+  const reviewUrl='/api/jobs/'+jobId+'/cost-review';
+  const approve=()=>request(reviewUrl,{method:'PUT',headers,body:JSON.stringify(checklist)});
+  assert.equal((await approve()).status,200);
+  const created=await request('/api/jobs/'+jobId+'/actual-costs',{method:'POST',headers,body:JSON.stringify({category:'material',description:'Integration test material',amount_pence:2500})});
+  assert.equal(created.status,201);
+  const afterAdd=await request(reviewUrl,{headers});
+  assert.equal(afterAdd.data.review.material_checked,false);
+  assert.equal(afterAdd.data.review.machining_checked,false);
+  const costs=await request('/api/jobs/'+jobId+'/actual-costs',{headers});
+  assert.equal(Number(costs.data.actual_cost_pence),2500);
  }finally{
   if(server){server.kill();await sleep(150);}
   await pool.end();
