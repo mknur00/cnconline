@@ -229,7 +229,7 @@ async function main(){
           const client=await pool.connect();
           try{
             await client.query('BEGIN');
-            const updated=await client.query('UPDATE quotes SET status=$2,subtotal_pence=$3,discount_pence=$4,vat_pence=$5,total_pence=$6,customer_notes=$7,updated_by=$8,updated_at=now() WHERE id=$1 RETURNING id,quote_number,status,total_pence',[quoteMatch[1],data.status,subtotal,discount,vat,subtotal-discount+vat,String(data.customer_notes||'').slice(0,2000),user.id]);
+            const updated=await client.query('UPDATE quotes SET status=$2,subtotal_pence=$3,discount_pence=$4,vat_pence=$5,total_pence=$6,customer_notes=$7,updated_by=$8,updated_at=now() WHERE id=$1 AND status != 'converted' RETURNING id,quote_number,status,total_pence',[quoteMatch[1],data.status,subtotal,discount,vat,subtotal-discount+vat,String(data.customer_notes||'').slice(0,2000),user.id]);
             if(!updated.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Quotation not found'});}
             await client.query('DELETE FROM quote_items WHERE quote_id=$1',[quoteMatch[1]]);
             for(let i=0;i<items.length;i++){const x=items[i];await client.query('INSERT INTO quote_items(quote_id,sort_order,description,quantity,unit,unit_price_pence,line_total_pence) VALUES($1,$2,$3,$4,$5,$6,$7)',[quoteMatch[1],i,x.description,x.quantity,x.unit,x.unitPrice,x.total]);}
