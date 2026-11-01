@@ -461,6 +461,40 @@ async function main(){
           await pool.query("INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES($1,'job',$2,'delete_part')",[user.id,partDelete[1]]);
           return json(res,200,{ok:true});
         }
+        if(pathname==='/api/production/board'&&req.method==='GET'){
+          const result=await pool.query("SELECT j.id,j.status,j.due_date,c.name AS customer_name,q.quote_number,pe.stage AS current_stage,pe.created_at AS stage_at FROM jobs j JOIN customers c ON c.id=j.customer_id LEFT JOIN quotes q ON q.id=j.quote_id LEFT JOIN LATERAL (SELECT stage,created_at FROM production_events WHERE job_id=j.id ORDER BY created_at DESC,id DESC LIMIT 1) pe ON true WHERE j.status<>'cancelled' ORDER BY j.created_at DESC LIMIT 200");
+          return json(res,200,{jobs:result.rows});
+        }
+        const stageMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/stage$/i);
+        if(stageMatch&&req.method==='POST'){
+          if(!['super_admin','manager','workshop'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const data=await body(req),stage=String(data.stage||'');
+          if(!['cutting','cnc','edgebanding','quality_check','ready','dispatched','completed','on_hold'].includes(stage))return json(res,400,{error:'Invalid stage'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const job=await client.query('SELECT id,status FROM jobs WHERE id=$1 FOR UPDATE',[stageMatch[1]]);
+            if(!job.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Job not found'});}
+            if(job.rows[0].status==='cancelled'||job.rows[0].status==='completed'){await client.query('ROLLBACK');return json(res,409,{error:'Closed job'});}
+            await client.query('INSERT INTO production_events(job_id,stage,notes,actor_id) VALUES($1,$2,$3,$4)',[stageMatch[1],stage,String(data.notes||'').slice(0,1000),user.id]);
+            const status=stage==='ready'?'ready':stage==='dispatched'?'dispatched':stage==='completed'?'completed':'in_production';
+            await client.query('UPDATE jobs SET status=$2,updated_at=now() WHERE id=$1',[stageMatch[1],status]);
+            await client.query('COMMIT');return json(res,201,{ok:true,stage,status});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
+        if(pathname==='/api/stock'&&req.method==='GET'){
+          const result=await pool.query('SELECT * FROM material_stock ORDER BY material_name,thickness_mm LIMIT 500');
+          return json(res,200,{stock:result.rows});
+        }
+        if(pathname==='/api/reports/operations'&&req.method==='GET'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const [quotes,jobs,invoices]=await Promise.all([
+            pool.query('SELECT status,count(*)::int AS count,COALESCE(sum(total_pence),0)::text AS total_pence FROM quotes GROUP BY status'),
+            pool.query('SELECT status,count(*)::int AS count FROM jobs GROUP BY status'),
+            pool.query("SELECT status,count(*)::int AS count,COALESCE(sum(amount_pence+vat_pence),0)::text AS total_pence FROM order_invoices GROUP BY status")
+          ]);
+          return json(res,200,{quotes:quotes.rows,jobs:jobs.rows,invoices:invoices.rows,notice:'Operational totals, not recognised revenue or verified net profit.'});
+        }
         if(pathname==='/api/dashboard'&&req.method==='GET'){
           const [customers,quotes,jobs]=await Promise.all([pool.query('SELECT count(*)::int AS total FROM customers'),pool.query('SELECT count(*)::int AS total FROM quotes'),pool.query('SELECT count(*)::int AS total FROM jobs')]);
           return json(res,200,{customers:customers.rows[0].total,quotes:quotes.rows[0].total,jobs:jobs.rows[0].total,user});
