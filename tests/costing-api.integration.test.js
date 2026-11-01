@@ -66,6 +66,19 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
   assert.equal(afterAdd.data.review.machining_checked,false);
   const costs=await request('/api/jobs/'+jobId+'/actual-costs',{headers});
   assert.equal(Number(costs.data.actual_cost_pence),2500);
+  assert.equal((await approve()).status,200);
+  const corrected=await request('/api/jobs/'+jobId+'/actual-costs/'+created.data.id+'/void',{method:'POST',headers,body:JSON.stringify({reason:'Integration test correction'})});
+  assert.equal(corrected.status,200);
+  const afterCorrection=await request(reviewUrl,{headers});
+  for(const key of Object.keys(checklist))assert.equal(afterCorrection.data.review[key],false,key+' reset after correction');
+  const correctedCosts=await request('/api/jobs/'+jobId+'/actual-costs',{headers});
+  assert.equal(Number(correctedCosts.data.actual_cost_pence),0);
+  assert.ok(correctedCosts.data.costs.some(x=>x.id===created.data.id&&x.voided_at));
+  const report=await request('/api/reports/job-contribution',{headers});
+  const reportJob=report.data.jobs.find(x=>x.id===jobId);
+  assert.ok(reportJob,'job included in contribution report');
+  assert.equal(Number(reportJob.recorded_cost_pence),0);
+  assert.equal(reportJob.costs_complete,false);
  }finally{
   if(server){server.kill();await sleep(150);}
   await pool.end();
