@@ -54,6 +54,8 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
    const update=await request('/api/costing/supplier-cost',{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({material_name:'API TEST BOARD',thickness_mm:18,supplier_cost_pence:4100})});
    assert.equal(update.status,role==='super_admin'?200:403,'supplier cost update '+role);
   }
+  const missingJob=await request('/api/jobs/00000000-0000-4000-8000-000000000000/cost-review',{headers:{Cookie:managerCookie}});
+  assert.equal(missingJob.status,404,'unknown job must not receive a checklist');
   const headers={Cookie:managerCookie,'Content-Type':'application/json'};
   const checklist={material_checked:true,machining_checked:true,labour_checked:true,overhead_checked:true};
   const reviewUrl='/api/jobs/'+jobId+'/cost-review';
