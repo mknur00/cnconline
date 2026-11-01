@@ -23,6 +23,9 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
   for(let i=0;i<50;i++){if(server.exitCode!==null)break;try{const x=await request('/api/health');if(x.status===200){ready=true;break;}}catch{}await sleep(200);}
   assert.ok(ready,'Backend did not start');
   const anonymous=await request('/api/costing');assert.equal(anonymous.status,401);
+  const customer=await pool.query("INSERT INTO customers(name) VALUES ('Permission test customer') RETURNING id");
+  const job=await pool.query('INSERT INTO jobs(customer_id) VALUES($1) RETURNING id',[customer.rows[0].id]);
+  const jobId=job.rows[0].id;
   for(const role of users){
    const login=await request('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:role+'@example.invalid',password})});
    assert.equal(login.status,200,'login '+role);
@@ -39,6 +42,13 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
     assert.equal(Number(material.supplier_cost_pence),4100,role+' supplier cost');
     assert.equal(settings.some(x=>x.key==='internal_cutting_cost_per_metre'),true,role+' internal rate');
    }
+   const jobCosts=await request('/api/jobs/'+jobId+'/actual-costs',{headers});
+   const jobReview=await request('/api/jobs/'+jobId+'/cost-review',{headers});
+   const contribution=await request('/api/reports/job-contribution',{headers});
+   const expected=role==='sales'||role==='workshop'?403:200;
+   assert.equal(jobCosts.status,expected,'actual costs access '+role);
+   assert.equal(jobReview.status,expected,'cost review access '+role);
+   assert.equal(contribution.status,expected,'contribution report access '+role);
    const update=await request('/api/costing/supplier-cost',{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({material_name:'API TEST BOARD',thickness_mm:18,supplier_cost_pence:4100})});
    assert.equal(update.status,role==='super_admin'?200:403,'supplier cost update '+role);
   }
