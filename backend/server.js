@@ -479,7 +479,7 @@ async function main(){
             const history=await client.query('SELECT stage FROM production_events WHERE job_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[stageMatch[1]]);
             const current=history.rows[0]?.stage||'new';
             const sequence=['new','cutting','cnc','edgebanding','quality_check','ready','dispatched','completed'];
-            if(stage!=='on_hold'&&!(current==='on_hold'&&['super_admin','manager'].includes(user.role))&&sequence.indexOf(stage)!==sequence.indexOf(current)+1){
+            if(stage!=='on_hold'&&!(current==='on_hold'&&['super_admin','manager'].includes(user.role))&&!(sequence.indexOf(stage)>sequence.indexOf(current)&&sequence.indexOf(stage)<=sequence.indexOf(current)+1 || (stage==='quality_check'&&['cutting','cnc','edgebanding'].includes(current)) || (stage==='edgebanding'&&current==='cutting'))){
               await client.query('ROLLBACK');return json(res,409,{error:'Invalid production sequence. Follow the next stage or request manager review.'});
             }
             if(stage==='completed'&&job.rows[0].status!=='dispatched'){
