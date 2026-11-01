@@ -32,3 +32,14 @@ test('sales quote estimate strips supplier costs and internal contribution',()=>
  const salesBranch=route.slice(route.indexOf("if(user.role==='sales')"),route.indexOf('return json(res,200,{quote_id:',route.indexOf("if(user.role==='sales')")+5));
  assert.doesNotMatch(salesBranch,/internal_total_cost_pence|supplier_material_cost_pence|indicative_job_contribution_pence/);
 });
+
+test('job estimate never treats missing cutting and edging rates as free',()=>{
+ const start=source.indexOf('const estimateMatch=');
+ const end=source.indexOf('const nestMatch=',start);
+ assert.ok(start>=0&&end>start);
+ const route=source.slice(start,end);
+ assert.match(route,/Number\.isSafeInteger\(rate\.edgebanding_per_metre\)/);
+ assert.match(route,/Number\.isSafeInteger\(rate\.cutting_per_metre\)/);
+ assert.match(route,/layout\.unplaced\.length\?null:Math\.max/);
+ assert.match(route,/ready_for_review:/);
+});
