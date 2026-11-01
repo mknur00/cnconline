@@ -203,3 +203,60 @@ DROP TRIGGER IF EXISTS job_actual_cost_review_invalidate ON job_actual_costs;
 CREATE TRIGGER job_actual_cost_review_invalidate
 AFTER INSERT OR UPDATE OF voided_at ON job_actual_costs
 FOR EACH ROW EXECUTE FUNCTION invalidate_job_cost_review();
+
+-- Stage 5: durable commercial and production records. Existing orders remain untouched.
+CREATE TABLE IF NOT EXISTS order_snapshots (
+ job_id uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE RESTRICT,
+ quote_id uuid NOT NULL REFERENCES quotes(id) ON DELETE RESTRICT,
+ quote_number text NOT NULL,
+ quote_total_pence bigint NOT NULL CHECK (quote_total_pence >= 0),
+ currency text NOT NULL DEFAULT 'GBP',
+ items jsonb NOT NULL,
+ captured_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS production_events (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ job_id uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+ stage text NOT NULL CHECK(stage IN ('new','cutting','cnc','edgebanding','quality_check','ready','dispatched','completed','on_hold')),
+ notes text,
+ actor_id uuid REFERENCES staff_users(id) ON DELETE SET NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS production_events_job_idx ON production_events(job_id,created_at);
+CREATE TABLE IF NOT EXISTS material_stock (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ material_name text NOT NULL,
+ thickness_mm numeric(8,2) NOT NULL CHECK(thickness_mm>0),
+ sheet_length_mm integer NOT NULL CHECK(sheet_length_mm>0),
+ sheet_width_mm integer NOT NULL CHECK(sheet_width_mm>0),
+ sheets_on_hand integer NOT NULL DEFAULT 0 CHECK(sheets_on_hand>=0),
+ reorder_level integer NOT NULL DEFAULT 0 CHECK(reorder_level>=0),
+ UNIQUE(material_name,thickness_mm,sheet_length_mm,sheet_width_mm)
+);
+CREATE TABLE IF NOT EXISTS stock_movements (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ stock_id uuid NOT NULL REFERENCES material_stock(id) ON DELETE RESTRICT,
+ job_id uuid REFERENCES jobs(id) ON DELETE RESTRICT,
+ quantity_change integer NOT NULL CHECK(quantity_change<>0),
+ reason text NOT NULL,
+ actor_id uuid REFERENCES staff_users(id) ON DELETE SET NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS order_invoices (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ job_id uuid NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE RESTRICT,
+ invoice_number bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
+ amount_pence bigint NOT NULL CHECK(amount_pence>=0),
+ vat_pence bigint NOT NULL DEFAULT 0 CHECK(vat_pence>=0),
+ status text NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','issued','paid','void')),
+ issued_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS invoice_payments (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ invoice_id uuid NOT NULL REFERENCES order_invoices(id) ON DELETE RESTRICT,
+ amount_pence bigint NOT NULL CHECK(amount_pence>0),
+ reference text NOT NULL,
+ received_at timestamptz NOT NULL DEFAULT now(),
+ actor_id uuid REFERENCES staff_users(id) ON DELETE SET NULL
+);
