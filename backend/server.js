@@ -538,7 +538,7 @@ async function main(){
             const inv=await client.query('SELECT * FROM order_invoices WHERE id=$1 FOR UPDATE',[invoicePayment[1]]);
             if(!inv.rowCount||!['issued','paid'].includes(inv.rows[0].status)){await client.query('ROLLBACK');return json(res,409,{error:'Invoice must be issued'});}
             const paid=await client.query('SELECT COALESCE(sum(amount_pence),0)::bigint AS total FROM invoice_payments WHERE invoice_id=$1',[invoicePayment[1]]);
-            const total=Number(inv.rows[0].amount_pence)+Number(inv.rows[0].vat_pence);
+            const total=Number(inv.rows[0].amount_pence);
             if(Number(paid.rows[0].total)+amount>total){await client.query('ROLLBACK');return json(res,409,{error:'Payment exceeds invoice balance'});}
             await client.query('INSERT INTO invoice_payments(invoice_id,amount_pence,reference,actor_id) VALUES($1,$2,$3,$4)',[invoicePayment[1],amount,reference,user.id]);
             if(Number(paid.rows[0].total)+amount===total)await client.query("UPDATE order_invoices SET status='paid' WHERE id=$1",[invoicePayment[1]]);
@@ -550,7 +550,7 @@ async function main(){
           const [quotes,jobs,invoices]=await Promise.all([
             pool.query('SELECT status,count(*)::int AS count,COALESCE(sum(total_pence),0)::text AS total_pence FROM quotes GROUP BY status'),
             pool.query('SELECT status,count(*)::int AS count FROM jobs GROUP BY status'),
-            pool.query("SELECT status,count(*)::int AS count,COALESCE(sum(amount_pence+vat_pence),0)::text AS total_pence FROM order_invoices GROUP BY status")
+            pool.query("SELECT status,count(*)::int AS count,COALESCE(sum(amount_pence),0)::text AS total_pence FROM order_invoices GROUP BY status")
           ]);
           return json(res,200,{quotes:quotes.rows,jobs:jobs.rows,invoices:invoices.rows,notice:'Operational totals, not recognised revenue or verified net profit.'});
         }
