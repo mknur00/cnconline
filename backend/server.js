@@ -507,6 +507,44 @@ async function main(){
           const result=await pool.query('SELECT * FROM material_stock ORDER BY material_name,thickness_mm LIMIT 500');
           return json(res,200,{stock:result.rows});
         }
+        if(pathname==='/api/invoices'&&req.method==='GET'){
+          if(!['super_admin','manager','sales'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query("SELECT i.*,j.status AS job_status,c.name AS customer_name,COALESCE((SELECT sum(p.amount_pence) FROM invoice_payments p WHERE p.invoice_id=i.id),0)::text AS paid_pence FROM order_invoices i JOIN jobs j ON j.id=i.job_id JOIN customers c ON c.id=j.customer_id ORDER BY i.created_at DESC LIMIT 200");
+          return json(res,200,{invoices:result.rows});
+        }
+        if(pathname==='/api/invoices'&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),vat=Number(d.vat_pence);
+          if(!/^[0-9a-f-]{36}$/i.test(String(d.job_id||''))||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Valid job and explicit VAT amount required'});
+          const result=await pool.query("INSERT INTO order_invoices(job_id,amount_pence,vat_pence) SELECT j.id,s.quote_total_pence-$2,$2 FROM jobs j JOIN order_snapshots s ON s.job_id=j.id WHERE j.id=$1 AND s.quote_total_pence>=$2 AND j.status<>'cancelled' ON CONFLICT(job_id) DO NOTHING RETURNING *",[d.job_id,vat]);
+          if(!result.rowCount)return json(res,409,{error:'Order not eligible or invoice already exists'});
+          return json(res,201,{invoice:result.rows[0],notice:'Draft only. Check VAT treatment and invoice details before issue.'});
+        }
+        const invoiceIssue=pathname.match(/^\/api\/invoices\/([0-9a-f-]{36})\/issue$/i);
+        if(invoiceIssue&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const result=await pool.query("UPDATE order_invoices SET status='issued',issued_at=now() WHERE id=$1 AND status='draft' RETURNING *",[invoiceIssue[1]]);
+          if(!result.rowCount)return json(res,409,{error:'Invoice not found or not draft'});
+          return json(res,200,{invoice:result.rows[0]});
+        }
+        const invoicePayment=pathname.match(/^\/api\/invoices\/([0-9a-f-]{36})\/payments$/i);
+        if(invoicePayment&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),amount=Number(d.amount_pence),reference=String(d.reference||'').trim();
+          if(!Number.isSafeInteger(amount)||amount<=0||reference.length<3||reference.length>200)return json(res,400,{error:'Invalid payment'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const inv=await client.query('SELECT * FROM order_invoices WHERE id=$1 FOR UPDATE',[invoicePayment[1]]);
+            if(!inv.rowCount||!['issued','paid'].includes(inv.rows[0].status)){await client.query('ROLLBACK');return json(res,409,{error:'Invoice must be issued'});}
+            const paid=await client.query('SELECT COALESCE(sum(amount_pence),0)::bigint AS total FROM invoice_payments WHERE invoice_id=$1',[invoicePayment[1]]);
+            const total=Number(inv.rows[0].amount_pence)+Number(inv.rows[0].vat_pence);
+            if(Number(paid.rows[0].total)+amount>total){await client.query('ROLLBACK');return json(res,409,{error:'Payment exceeds invoice balance'});}
+            await client.query('INSERT INTO invoice_payments(invoice_id,amount_pence,reference,actor_id) VALUES($1,$2,$3,$4)',[invoicePayment[1],amount,reference,user.id]);
+            if(Number(paid.rows[0].total)+amount===total)await client.query("UPDATE order_invoices SET status='paid' WHERE id=$1",[invoicePayment[1]]);
+            await client.query('COMMIT');return json(res,201,{ok:true,paid_pence:Number(paid.rows[0].total)+amount,balance_pence:total-Number(paid.rows[0].total)-amount});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
         if(pathname==='/api/reports/operations'&&req.method==='GET'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
           const [quotes,jobs,invoices]=await Promise.all([
