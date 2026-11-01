@@ -482,6 +482,27 @@ async function main(){
             await client.query('COMMIT');return json(res,201,{ok:true,stage,status});
           }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
         }
+        if(pathname==='/api/stock'&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),name=String(d.material_name||'').trim(),thickness=Number(d.thickness_mm),length=Number(d.sheet_length_mm),width=Number(d.sheet_width_mm),reorder=Number(d.reorder_level||0);
+          if(!name||name.length>150||!Number.isFinite(thickness)||thickness<=0||![length,width].every(x=>Number.isSafeInteger(x)&&x>=100&&x<=10000)||!Number.isSafeInteger(reorder)||reorder<0)return json(res,400,{error:'Invalid stock item'});
+          const result=await pool.query('INSERT INTO material_stock(material_name,thickness_mm,sheet_length_mm,sheet_width_mm,reorder_level) VALUES($1,$2,$3,$4,$5) ON CONFLICT(material_name,thickness_mm,sheet_length_mm,sheet_width_mm) DO UPDATE SET reorder_level=EXCLUDED.reorder_level RETURNING *',[name,thickness,length,width,reorder]);
+          return json(res,200,{stock:result.rows[0]});
+        }
+        const stockMove=pathname.match(/^\/api\/stock\/([0-9a-f-]{36})\/movements$/i);
+        if(stockMove&&req.method==='POST'){
+          if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
+          const d=await body(req),change=Number(d.quantity_change),reason=String(d.reason||'').trim(),jobId=d.job_id||null;
+          if(!Number.isSafeInteger(change)||change===0||Math.abs(change)>100000||reason.length<5||reason.length>250||(jobId&&!/^[0-9a-f-]{36}$/i.test(jobId)))return json(res,400,{error:'Invalid stock movement'});
+          const client=await pool.connect();
+          try{
+            await client.query('BEGIN');
+            const stock=await client.query('UPDATE material_stock SET sheets_on_hand=sheets_on_hand+$2 WHERE id=$1 AND sheets_on_hand+$2>=0 RETURNING *',[stockMove[1],change]);
+            if(!stock.rowCount){await client.query('ROLLBACK');return json(res,409,{error:'Stock not found or insufficient quantity'});}
+            await client.query('INSERT INTO stock_movements(stock_id,job_id,quantity_change,reason,actor_id) VALUES($1,$2,$3,$4,$5)',[stockMove[1],jobId,change,reason,user.id]);
+            await client.query('COMMIT');return json(res,201,{stock:stock.rows[0]});
+          }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+        }
         if(pathname==='/api/stock'&&req.method==='GET'){
           const result=await pool.query('SELECT * FROM material_stock ORDER BY material_name,thickness_mm LIMIT 500');
           return json(res,200,{stock:result.rows});
