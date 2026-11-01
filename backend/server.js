@@ -328,7 +328,8 @@ async function main(){
           return json(res,200,{ok:true,id:result.rows[0].id});
         }
         if(pathname==='/api/costing'&&req.method==='GET'){
-          const [settings,materials]=await Promise.all([pool.query('SELECT key,value_pence FROM costing_settings ORDER BY key'),pool.query('SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
+          const canSeeInternalCosts=['super_admin','manager'].includes(user.role);
+          const [settings,materials]=await Promise.all([pool.query(canSeeInternalCosts?'SELECT key,value_pence FROM costing_settings ORDER BY key':"SELECT key,value_pence FROM costing_settings WHERE key NOT LIKE 'internal_%' ORDER BY key"),pool.query(canSeeInternalCosts?'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm':'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
         }
         if(pathname==='/api/costing/supplier-cost'&&req.method==='PUT'){
