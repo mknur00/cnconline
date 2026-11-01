@@ -26,10 +26,12 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
   const customer=await pool.query("INSERT INTO customers(name) VALUES ('Permission test customer') RETURNING id");
   const job=await pool.query('INSERT INTO jobs(customer_id) VALUES($1) RETURNING id',[customer.rows[0].id]);
   const jobId=job.rows[0].id;
+  let managerCookie;
   for(const role of users){
    const login=await request('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:role+'@example.invalid',password})});
    assert.equal(login.status,200,'login '+role);
    const headers={Cookie:login.cookie};
+   if(role==='manager')managerCookie=login.cookie;
    const result=await request('/api/costing',{headers});
    assert.equal(result.status,200,'costing '+role);
    const material=result.data.materials.find(x=>x.material_name==='API TEST BOARD');
