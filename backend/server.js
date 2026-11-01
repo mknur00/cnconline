@@ -223,7 +223,7 @@ async function main(){
             if(!Number.isSafeInteger(total))return json(res,400,{error:'Invalid line total'});
             items.push({description,quantity,unitPrice,total,unit:String(x.unit||'each').slice(0,30)});
           }
-          const subtotal=items.reduce((a,x)=>a+x.total,0),discount=Number(data.discount_pence||0),vat=Number(data.vat_pence||0);
+          const subtotal=items.reduce((a,x)=>a+x.total,0),discount=Number(data.discount_pence||0),vat=0;
           if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Invalid totals'});
           if(['sent','accepted','converted'].includes(data.status)&&(items.some(x=>x.unitPrice<=0)||subtotal-discount+vat<=0))return json(res,409,{error:'Review and price every item before marking this quotation sent or accepted.'});
           const client=await pool.connect();
