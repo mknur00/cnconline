@@ -21,3 +21,14 @@ test('supplier cost updates require super administrator',()=>{
  assert.ok(start>=0);
  assert.match(source.slice(start,start+220),/if\(user\.role!=='super_admin'\)return json\(res,403/);
 });
+
+test('sales quote estimate strips supplier costs and internal contribution',()=>{
+ const start=source.indexOf('const quoteEstimateMatch=');
+ const end=source.indexOf('const estimateMatch=',start);
+ assert.ok(start>=0&&end>start);
+ const route=source.slice(start,end);
+ assert.match(route,/if\(user\.role==='sales'\)return json\(res,200/);
+ assert.match(route,/sheets:sheets\.map\(\(\{supplier_cost_pence,\.\.\.publicSheet\}\)=>publicSheet\)/);
+ const salesBranch=route.slice(route.indexOf("if(user.role==='sales')"),route.indexOf('return json(res,200,{quote_id:',route.indexOf("if(user.role==='sales')")+5));
+ assert.doesNotMatch(salesBranch,/internal_total_cost_pence|supplier_material_cost_pence|indicative_job_contribution_pence/);
+});
