@@ -289,8 +289,10 @@ async function main(){
         const reviewMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]{36})\/cost-review$/i);
         if(reviewMatch&&req.method==='GET'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
-          const result=await pool.query('SELECT material_checked,machining_checked,labour_checked,overhead_checked,reviewed_at FROM job_cost_reviews WHERE job_id=$1',[reviewMatch[1]]);
-          return json(res,200,{review:result.rows[0]||{material_checked:false,machining_checked:false,labour_checked:false,overhead_checked:false,reviewed_at:null}});
+          const result=await pool.query('SELECT j.id,r.material_checked,r.machining_checked,r.labour_checked,r.overhead_checked,r.reviewed_at FROM jobs j LEFT JOIN job_cost_reviews r ON r.job_id=j.id WHERE j.id=$1',[reviewMatch[1]]);
+          if(!result.rowCount)return json(res,404,{error:'Job not found'});
+          const review=result.rows[0];
+          return json(res,200,{review:{material_checked:review.material_checked??false,machining_checked:review.machining_checked??false,labour_checked:review.labour_checked??false,overhead_checked:review.overhead_checked??false,reviewed_at:review.reviewed_at}});
         }
         if(reviewMatch&&req.method==='PUT'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
