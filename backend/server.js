@@ -187,7 +187,7 @@ async function main(){
           }
           const subtotal=items.reduce((sum,item)=>sum+item.lineTotal,0);
           const discount=Number(data.discount_pence||0);
-          const vat=Number(data.vat_pence||0);
+          const vat=0;
           if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(discount)||discount<0||discount>subtotal||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Invalid quote totals'});
           const client=await pool.connect();
           try{
