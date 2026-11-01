@@ -5,6 +5,8 @@ on:
     paths:
       - 'database/schema.sql'
       - 'tests/job-cost-review.js'
+      - 'tests/costing-access.test.js'
+      - 'backend/server.js'
       - '.github/workflows/job-cost-review.yml'
   workflow_dispatch:
 jobs:
@@ -34,6 +36,8 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install --ignore-scripts
+      - name: Verify pricing access guardrails
+        run: node --test tests/costing-access.test.js
       - name: Create isolated test schema
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
       - name: Seed a disposable test job
