@@ -514,11 +514,11 @@ async function main(){
         }
         if(pathname==='/api/invoices'&&req.method==='POST'){
           if(!['super_admin','manager'].includes(user.role))return json(res,403,{error:'Access denied'});
-          const d=await body(req),vat=Number(d.vat_pence);
-          if(!/^[0-9a-f-]{36}$/i.test(String(d.job_id||''))||!Number.isSafeInteger(vat)||vat<0)return json(res,400,{error:'Valid job and explicit VAT amount required'});
-          const result=await pool.query("INSERT INTO order_invoices(job_id,amount_pence,vat_pence) SELECT j.id,s.quote_total_pence-$2,$2 FROM jobs j JOIN order_snapshots s ON s.job_id=j.id WHERE j.id=$1 AND s.quote_total_pence>=$2 AND j.status<>'cancelled' ON CONFLICT(job_id) DO NOTHING RETURNING *",[d.job_id,vat]);
+          const d=await body(req);
+          if(!/^[0-9a-f-]{36}$/i.test(String(d.job_id||'')))return json(res,400,{error:'Valid job required'});
+          const result=await pool.query("INSERT INTO order_invoices(job_id,amount_pence,vat_pence) SELECT j.id,s.quote_total_pence,0 FROM jobs j JOIN order_snapshots s ON s.job_id=j.id WHERE j.id=$1 AND j.status<>'cancelled' ON CONFLICT(job_id) DO NOTHING RETURNING *",[d.job_id]);
           if(!result.rowCount)return json(res,409,{error:'Order not eligible or invoice already exists'});
-          return json(res,201,{invoice:result.rows[0],notice:'Draft only. Check VAT treatment and invoice details before issue.'});
+          return json(res,201,{invoice:result.rows[0],notice:'Draft only. No VAT added to invoice total.'});
         }
         const invoiceIssue=pathname.match(/^\/api\/invoices\/([0-9a-f-]{36})\/issue$/i);
         if(invoiceIssue&&req.method==='POST'){
