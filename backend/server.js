@@ -476,6 +476,15 @@ async function main(){
             const job=await client.query('SELECT id,status FROM jobs WHERE id=$1 FOR UPDATE',[stageMatch[1]]);
             if(!job.rowCount){await client.query('ROLLBACK');return json(res,404,{error:'Job not found'});}
             if(job.rows[0].status==='cancelled'||job.rows[0].status==='completed'){await client.query('ROLLBACK');return json(res,409,{error:'Closed job'});}
+            const history=await client.query('SELECT stage FROM production_events WHERE job_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[stageMatch[1]]);
+            const current=history.rows[0]?.stage||'new';
+            const sequence=['new','cutting','cnc','edgebanding','quality_check','ready','dispatched','completed'];
+            if(stage!=='on_hold'&&!(current==='on_hold'&&['super_admin','manager'].includes(user.role))&&sequence.indexOf(stage)!==sequence.indexOf(current)+1){
+              await client.query('ROLLBACK');return json(res,409,{error:'Invalid production sequence. Follow the next stage or request manager review.'});
+            }
+            if(stage==='completed'&&job.rows[0].status!=='dispatched'){
+              await client.query('ROLLBACK');return json(res,409,{error:'Dispatch the order before completion'});
+            }
             await client.query('INSERT INTO production_events(job_id,stage,notes,actor_id) VALUES($1,$2,$3,$4)',[stageMatch[1],stage,String(data.notes||'').slice(0,1000),user.id]);
             const status=stage==='ready'?'ready':stage==='dispatched'?'dispatched':stage==='completed'?'completed':'in_production';
             await client.query('UPDATE jobs SET status=$2,updated_at=now() WHERE id=$1',[stageMatch[1],status]);
