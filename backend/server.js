@@ -329,7 +329,7 @@ async function main(){
         }
         if(pathname==='/api/costing'&&req.method==='GET'){
           const canSeeInternalCosts=['super_admin','manager'].includes(user.role);
-          const [settings,materials]=await Promise.all([pool.query(canSeeInternalCosts?'SELECT key,value_pence FROM costing_settings ORDER BY key':"SELECT key,value_pence FROM costing_settings WHERE key NOT LIKE 'internal_%' ORDER BY key"),pool.query(canSeeInternalCosts?'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm':'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
+          const [settings,materials]=await Promise.all([pool.query(canSeeInternalCosts?'SELECT key,value_pence FROM costing_settings ORDER BY key':"SELECT key,value_pence FROM costing_settings WHERE key IN ('edgebanding_per_metre','cutting_per_metre','minimum_job_charge','cnc_machine_hourly_rate') ORDER BY key"),pool.query(canSeeInternalCosts?'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence,supplier_cost_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm':'SELECT material_name,thickness_mm,sheet_length_mm,sheet_width_mm,price_pence FROM material_sheet_prices ORDER BY material_name,thickness_mm')]);
           return json(res,200,{settings:settings.rows,materials:materials.rows});
         }
         if(pathname==='/api/costing/supplier-cost'&&req.method==='PUT'){
