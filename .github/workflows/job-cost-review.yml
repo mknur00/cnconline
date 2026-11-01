@@ -6,6 +6,7 @@ on:
       - 'database/schema.sql'
       - 'tests/job-cost-review.js'
       - 'tests/costing-access.test.js'
+      - 'tests/costing-api.integration.test.js'
       - 'backend/server.js'
       - '.github/workflows/job-cost-review.yml'
   workflow_dispatch:
@@ -40,6 +41,8 @@ jobs:
         run: node --test tests/costing-access.test.js
       - name: Create isolated test schema
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
+      - name: Test authenticated pricing permissions against isolated backend
+        run: node --test tests/costing-api.integration.test.js
       - name: Seed a disposable test job
         run: |
           echo "TEST_JOB_ID=$(psql "$DATABASE_URL" -At -v ON_ERROR_STOP=1 -c "WITH c AS (INSERT INTO customers(name) VALUES ('Automated Test Customer') RETURNING id) INSERT INTO jobs(customer_id) SELECT id FROM c RETURNING id")" >> "$GITHUB_ENV"
