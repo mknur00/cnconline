@@ -51,6 +51,13 @@ test('authenticated costing API enforces confidential pricing access',async()=>{
    assert.equal(jobCosts.status,expected,'actual costs access '+role);
    assert.equal(jobReview.status,expected,'cost review access '+role);
    assert.equal(contribution.status,expected,'contribution report access '+role);
+   if(role==='sales'||role==='workshop'){
+    const restrictedHeaders={...headers,'Content-Type':'application/json'};
+    const reviewWrite=await request('/api/jobs/'+jobId+'/cost-review',{method:'PUT',headers:restrictedHeaders,body:JSON.stringify({material_checked:true,machining_checked:true,labour_checked:true,overhead_checked:true})});
+    assert.equal(reviewWrite.status,403,'review write denied '+role);
+    const costWrite=await request('/api/jobs/'+jobId+'/actual-costs',{method:'POST',headers:restrictedHeaders,body:JSON.stringify({category:'material',description:'Forbidden test expense',amount_pence:100})});
+    assert.equal(costWrite.status,403,'cost write denied '+role);
+   }
    const update=await request('/api/costing/supplier-cost',{method:'PUT',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({material_name:'API TEST BOARD',thickness_mm:18,supplier_cost_pence:4100})});
    assert.equal(update.status,role==='super_admin'?200:403,'supplier cost update '+role);
   }
