@@ -4,6 +4,7 @@ const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const {Pool}=require('pg');
+if(process.env.CI!=='true'||!process.env.DATABASE_URL?.endsWith('/cnconline_test'))throw Error('Isolated CI database required');
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
 const port=39741;
 const base='http://127.0.0.1:'+port;
