@@ -178,6 +178,10 @@ ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS voided_by uuid REFERENCES 
 ALTER TABLE job_actual_costs ADD COLUMN IF NOT EXISTS void_reason text;
 
 -- Manager cost-completeness review, separate from the underlying ledger.
+-- Speed up recent-job financial reporting and active cost lookups.
+CREATE INDEX IF NOT EXISTS jobs_created_at_recent_idx ON jobs (created_at DESC, id);
+CREATE INDEX IF NOT EXISTS job_actual_costs_active_job_idx ON job_actual_costs (job_id) WHERE voided_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS job_cost_reviews (
  job_id uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
  material_checked boolean NOT NULL DEFAULT false,
