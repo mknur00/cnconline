@@ -15,6 +15,8 @@ function parseCookies(header='') { return Object.fromEntries(header.split(';').m
 function currentUser(req) { const sid=parseCookies(req.headers.cookie).cnc_session; const s=sessions.get(sid); if(!s) return null; if(s.expires < Date.now()){sessions.delete(sid);return null;} return s.user; }
 function hashPassword(password, salt=crypto.randomBytes(16).toString('hex')) { return salt+':'+crypto.scryptSync(password,salt,64).toString('hex'); }
 function verifyPassword(password, stored) { if(!stored || !stored.includes(':')) return false; const [salt,digest]=stored.split(':'); const candidate=crypto.scryptSync(password,salt,64); const expected=Buffer.from(digest,'hex'); return candidate.length===expected.length && crypto.timingSafeEqual(candidate,expected); }
+async function notifyNewQuote(reference,name,email,phone,fileCount){const key=process.env.BREVO_API_KEY;if(!key){console.warn('Quote '+reference+': BREVO_API_KEY not configured; email alert not sent');return;}const payload={sender:{name:'CNC ONLINE',email:process.env.BREVO_SENDER_EMAIL||'hello@cnconline.co.uk'},to:[{email:'hello@cnconline.co.uk'}],subject:'New CNC ONLINE quotation request #'+reference,htmlContent:'<h2>New quotation request #'+reference+'</h2><p>Customer: '+escapeHtml(name)+'</p><p>Email: '+escapeHtml(email)+'</p><p>Phone: '+escapeHtml(phone)+'</p><p>Attached files: '+fileCount+'</p><p>Sign in to the <a href="https://www.cnconline.co.uk/admin/">CNC ONLINE admin dashboard</a> to review the quotation and download files.</p>'};try{const response=await fetch('https://api.brevo.com/v3/smtp/email',{method:'POST',headers:{'api-key':key,'content-type':'application/json'},body:JSON.stringify(payload)});if(!response.ok)console.error('Brevo quote notification failed: HTTP '+response.status);}catch(error){console.error('Brevo quote notification failed:',error.message);}}
+function escapeHtml(value){return String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 async function body(req,limit=32768) { let data=''; for await (const chunk of req){data+=chunk;if(data.length>limit)throw Error('Request too large');} return JSON.parse(data||'{}'); }
 function safeOrigin(req){const origin=req.headers.origin;if(!origin)return true;try {return new URL(origin).host===req.headers.host;}catch{return false;}}
 function serve(req,res,pathname) {
@@ -97,6 +99,7 @@ async function main(){
             for(const file of attachments)await client.query('INSERT INTO enquiry_uploads(quote_id,original_filename,mime_type,byte_size,file_data) VALUES($1,$2,$3,$4,$5)',[quote.rows[0].id,file.name,file.mime,file.bytes.length,file.bytes]);
             await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_cutlist')",[quote.rows[0].id]);
             await client.query('COMMIT');
+            void notifyNewQuote(String(quote.rows[0].quote_number),name,email,phone,attachments.length);
             return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
           }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
         }
