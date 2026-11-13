@@ -71,7 +71,7 @@ async function main(){
           if(data.website)return json(res,200,{ok:true});
           const name=String(data.name||'').trim(),email=String(data.email||'').trim(),phone=String(data.phone||'').trim();
           if(name.length<2||name.length>200||email.length>255||phone.length>60||(!email&&!phone)||(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))return json(res,400,{error:'Provide your name and a valid email or phone number.'});
-          if(!Array.isArray(data.panels)||!data.panels.length||data.panels.length>100)return json(res,400,{error:'Add between 1 and 100 panel lines.'});
+          if(!Array.isArray(data.panels)||data.panels.length>100||(!data.panels.length&&(!Array.isArray(data.files)||!data.files.length)))return json(res,400,{error:'Add a cutting-list line or attach at least one job file.'});
           const parts=[];
           for(const p of data.panels){
             const length=Number(p.length),width=Number(p.width),quantity=Number(p.quantity),thickness=Number(p.thickness);
