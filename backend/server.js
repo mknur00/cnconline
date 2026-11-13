@@ -133,6 +133,7 @@ async function main(){
             await client.query("INSERT INTO audit_log(entity_type,entity_id,action) VALUES('quote',$1,'public_enquiry')",[quote.rows[0].id]);
             if(upload)await client.query('INSERT INTO enquiry_uploads(quote_id,original_filename,mime_type,byte_size,file_data) VALUES($1,$2,$3,$4,$5)',[quote.rows[0].id,upload.name,upload.mime,upload.bytes.length,upload.bytes]);
             await client.query('COMMIT');
+            void notifyNewQuote(String(quote.rows[0].quote_number),name,email,phone,upload?[upload]:[]);
             return json(res,201,{ok:true,reference:String(quote.rows[0].quote_number)});
           }catch(err){await client.query('ROLLBACK');throw err;}finally{client.release();}
         }
